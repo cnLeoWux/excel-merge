@@ -203,7 +203,7 @@ def process_excel_files(order_file, payment_file):
         
         print(f"  Truncated Order Number (first 20 chars): {order_no}")
             
-        # Determine if it's a regular order or refund order
+        # Determine if it's a regular order, refund order, or skip
         order_amount_raw = order_row.get('订单金额', 0)
         print(f"  Raw Order Amount: {order_amount_raw}")
         
@@ -219,8 +219,16 @@ def process_excel_files(order_file, payment_file):
                 order_amount = 0  # Default to 0 if conversion fails
                 print(f"  Failed to convert amount '{order_amount_raw}' to float, setting to 0")
         
-        is_regular_order = order_amount >= 0
-        order_type = "正单(Regular)" if is_regular_order else "退单(Refund)"
+        # Updated logic: positive amounts > 0 = regular order, negative amounts < 0 = refund, amount = 0 = skip
+        if order_amount > 0:
+            is_regular_order = True
+            order_type = "正单(Regular)"
+        elif order_amount < 0:
+            is_regular_order = False
+            order_type = "退单(Refund)"
+        else:  # order_amount == 0
+            print(f"Row {idx}: Skipped - Order amount is 0")
+            continue  # Skip processing if amount is 0
         
         print(f"Row {idx}: Processing - Order No: {order_no}, External Order: {external_order_no}, Amount: {order_amount} ({order_type})")
         
