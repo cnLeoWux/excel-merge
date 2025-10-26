@@ -230,7 +230,7 @@ def process_excel_files(order_file, payment_file):
                 order_amount = 0  # Default to 0 if conversion fails
                 print(f"  Failed to convert amount '{order_amount_raw}' to float, setting to 0")
         
-        # Updated logic: positive amounts > 0 = regular order, negative amounts < 0 = refund, amount = 0 = skip
+        # Updated logic: positive amounts > 0 = regular order, negative amounts < 0 = refund, amount = 0 = set 支付手续费 to 0
         if order_amount > 0:
             is_regular_order = True
             order_type = "正单(Regular)"
@@ -238,8 +238,9 @@ def process_excel_files(order_file, payment_file):
             is_regular_order = False
             order_type = "退单(Refund)"
         else:  # order_amount == 0
-            print(f"Row {idx}: Skipped - Order amount is 0")
-            continue  # Skip processing if amount is 0
+            print(f"Row {idx}: Order amount is 0, setting 支付手续费 to 0")
+            order_df.at[idx, '支付手续费'] = 0.0
+            continue  # Skip further processing for this row but set the fee to 0
         
         print(f"Row {idx}: Processing - Order No: {order_no}, Amount: {order_amount} ({order_type})")
         
