@@ -124,8 +124,19 @@ excel-merge/
 ├── request.md             # Original requirements document
 ├── requirements.txt       # Python dependencies
 ├── run_excel_merge.bat    # Windows batch file for easy execution
+├── documents/             # Documentation files
+│   ├── TECHNICAL_DOCS.md  # Technical documentation
+│   ├── USAGE_EXAMPLES.md  # Usage examples
+│   └── ARCHITECTURE.md    # Architecture overview
 └── ExcelForHandel/        # Directory for input Excel files
 ```
+
+## Documentation
+
+- `README.md` - This file with basic usage instructions
+- `documents/TECHNICAL_DOCS.md` - Technical documentation with implementation details
+- `documents/USAGE_EXAMPLES.md` - Examples of how to use the tool
+- `documents/ARCHITECTURE.md` - Architecture overview of the refactored codebase
 
 ## Development Notes
 
