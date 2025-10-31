@@ -1,44 +1,50 @@
 # Project Summary
 
 ## Overall Goal
-Create an Excel merge tool that matches two Excel/CSV files based on specific business logic: matching "订单号" with "商务订单号" (first 20 characters), "外部订单号" with "商品名称" (P-number pattern), and updating "支付手续费" based on order type (正单/退单) and business type (收费/退费).
+Create and refactor an Excel merge tool that matches two Excel/CSV files based on specific business logic to update a "支付手续费" column, with robust file format support, proper error handling, and well-organized documentation.
 
 ## Key Knowledge
 - **Technology Stack**: Python with pandas, openpyxl, xlrd for Excel/CSV processing
-- **File Locations**: Process files from `ExcelForHandel` directory
+- **Directory Structure**: 
+  - Main files: `cli.py`, `excel_merge.py`, `utils.py` (shared utilities)
+  - Documentation in: `documents/` directory
+  - Requirements: `requirements.txt` (pandas>=1.3.0, openpyxl>=3.0.0, xlrd>=2.0.0)
 - **Column Names**: 
   - Order file: '订单号', '外部订单号', '订单金额', '支付手续费'
-  - Payment file: '商务订单号', '商品名称', '业务类型', '支出金额（-元）', '收入金额（+元）'
+  - Payment file: '商户订单号', '商品名称', '业务类型', '支出金额（-元）', '收入金额（+元）'
 - **Matching Logic**:
-  - Orders with positive '订单金额' are regular orders (正单), negative are refunds (退单)
+  - Orders with positive '订单金额' are regular orders (正单), negative are refunds (退单), zero amounts get '支付手续费' set to 0.0
   - Regular orders match payment records with '收费' business type, get '支出金额（-元）'
   - Refund orders match payment records with '退费' business type, get '收入金额（+元）'
-- **Special Requirements**:
-  - Ignore lines starting with # in payment CSV files
-  - Use first non-comment line as header (typically 5th line)
-  - Modify original file in-place instead of creating new files
-  - Provide detailed matching process output
+  - Primary match: First 20 characters of '订单号' with '商户订单号'
+  - Secondary match: '外部订单号' with part after last "-" in '商品名称'
+  - Alternative match: P-number pattern matching
+- **Architecture**: Modular design with shared utilities in `utils.py` to eliminate code duplication between `cli.py` and `excel_merge.py`
+- **File Formats**: Supports both Excel (.xlsx/.xls) and CSV files with multiple encoding fallbacks (UTF-8, GBK, GB2312, Latin-1)
+- **Special Requirements**: Handle CSV files with comment lines (starting with #), preserve original file format when updating, modify files in-place rather than creating new files
 
 ## Recent Actions
-1. **[DONE]** Implemented core matching logic with order number (20char) and P-number matching
-2. **[DONE]** Added support for both Excel (.xlsx/.xls) and CSV file formats
-3. **[DONE]** Created interactive and CLI interfaces for specifying file names
-4. **[DONE]** Added robust error handling for encoding issues (UTF-8, GBK, GB2312, Latin-1)
-5. **[DONE]** Implemented CSV comment line handling (lines starting with #)
-6. **[DONE]** Added detailed matching process output to console
-7. **[DONE]** Fixed "object of type 'float' has no len()" error by adding NaN checks
-8. **[DONE]** Implemented in-place file modification instead of creating new files
-9. **[DONE]** Added support for various CSV parsing issues with multiple fallback strategies
-10. **[DONE]** Created comprehensive test files to verify functionality
+- [DONE] Created shared `utils.py` module to eliminate code duplication between `excel_merge.py` and `cli.py`
+- [DONE] Refactored core functionality into shared utility functions: `extract_p_number`, `match_orders_by_p_number`, `read_file_with_appropriate_method`, `process_excel_files`, `find_file_path`, `write_result_file`
+- [DONE] Added comprehensive type hints throughout the codebase for better maintainability
+- [DONE] Improved error handling with specific exception types and proper file handling
+- [DONE] Organized documentation into a dedicated `documents/` directory with `TECHNICAL_DOCS.md`, `USAGE_EXAMPLES.md`, and `ARCHITECTURE.md`
+- [DONE] Updated `README.md` to reflect new documentation location and project structure
+- [DONE] Maintained all original matching logic while improving performance and maintainability
+- [DONE] Tested refactored code with sample data to confirm functionality
+- [DONE] Renamed original requirements document to `REQUIREMENT.md`
+- [DONE] Committed and pushed all changes to the remote repository
 
 ## Current Plan
-1. **[DONE]** Complete the Excel merge tool with all specified requirements
-2. **[DONE]** Ensure robust handling of various file formats and edge cases
-3. **[DONE]** Implement error handling for encoding and parsing issues
-4. **[DONE]** Final testing with sample data to confirm all functionality works correctly
-5. **[DONE]** Document the solution in requirements format
+1. [DONE] Complete refactoring of codebase to eliminate duplication
+2. [DONE] Add type hints and improve code quality
+3. [DONE] Create comprehensive documentation in organized directory structure
+4. [DONE] Update README to reflect new architecture and documentation
+5. [DONE] Test refactored code with sample data
+6. [DONE] Commit and push all changes to remote repository
+7. [DONE] Verify repository is properly updated with all changes
 
 ---
 
 ## Summary Metadata
-**Update time**: 2025-10-26T14:14:05.119Z 
+**Update time**: 2025-10-31T06:25:17.345Z 
