@@ -1,3 +1,11 @@
+'''
+Author: Leo Wu leo.wux@lego.com
+Date: 2025-10-27 10:59:13
+LastEditors: Leo Wu leo.wux@lego.com
+LastEditTime: 2025-12-30 13:23:11
+FilePath: /excel-merge/excel_merge.py
+Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
+'''
 import pandas as pd
 import os
 import re
@@ -8,23 +16,47 @@ from utils import process_excel_files, read_file_with_appropriate_method, find_f
 def main():
     # Get file names from user input
     print("Excel Merge Tool")
-    print("Please specify the two Excel files to process:")
     
-    order_input = input("Enter the path/name of the first Excel file (order data): ").strip()
-    payment_input = input("Enter the path/name of the second Excel file (payment/refund data): ").strip()
-    
-    # Try to find the files in common locations
-    order_file_path = find_file_path(order_input)
-    payment_file_path = find_file_path(payment_input)
-    
-    # Check if files exist
-    if not order_file_path.exists():
-        print(f"Error: File '{order_input}' does not exist in current directory or ExcelForHandel subdirectory.")
+    # Get all files in ExcelForHandel directory
+    excel_dir = Path("ExcelForHandel")
+    if not excel_dir.exists():
+        print(f"Error: ExcelForHandel directory does not exist.")
         return
-        
-    if not payment_file_path.exists():
-        print(f"Error: File '{payment_input}' does not exist in current directory or ExcelForHandel subdirectory.")
+    
+    # List all files in the directory
+    files = list(excel_dir.glob("*"))
+    if not files:
+        print(f"Error: No files found in ExcelForHandel directory.")
         return
+    
+    # Display files for selection
+    print("Available files in ExcelForHandel directory:")
+    for i, file in enumerate(files, 1):
+        print(f"{i}. {file.name}")
+    
+    # Get first file selection
+    while True:
+        try:
+            order_choice = int(input("\nSelect the first Excel file (order data) by number: ").strip())
+            if 1 <= order_choice <= len(files):
+                order_file_path = files[order_choice - 1]
+                break
+            else:
+                print(f"Please enter a number between 1 and {len(files)}.")
+        except ValueError:
+            print("Please enter a valid number.")
+    
+    # Get second file selection
+    while True:
+        try:
+            payment_choice = int(input("\nSelect the second Excel file (payment/refund data) by number: ").strip())
+            if 1 <= payment_choice <= len(files):
+                payment_file_path = files[payment_choice - 1]
+                break
+            else:
+                print(f"Please enter a number between 1 and {len(files)}.")
+        except ValueError:
+            print("Please enter a valid number.")
     
     print(f"Processing files:")
     print(f"  Order file: {order_file_path}")
