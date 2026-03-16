@@ -1,7 +1,6 @@
-# DOCUMENTS DIRECTORY KNOWLEDGE BASE
+# DOCUMENTS DIRECTORY
 
-**Generated:** 2026-02-28
-**Commit:** HEAD
+**Generated:** 2026-03-01
 
 ## OVERVIEW
 Documentation files for the Excel merge tool - technical docs, usage examples, and architecture overview.
@@ -11,7 +10,7 @@ Documentation files for the Excel merge tool - technical docs, usage examples, a
 documents/
 ├── ARCHITECTURE.md      # Architecture overview of the codebase
 ├── TECHNICAL_DOCS.md    # Technical implementation details
-└── USAGE_EXAMPLES.md    # Usage examples and instructions 
+└── USAGE_EXAMPLES.md    # Usage examples and instructions
 ```
 
 ## WHERE TO LOOK
@@ -31,7 +30,7 @@ documents/
 - Some redundancy possible with README.md
 
 ## UNIQUE STYLES
-- Business-centric documentation in Chinese terminology  
+- Business-centric documentation in Chinese terminology
 - Detailed examples with actual column names and processing logic
 - Emphasis on both interactive and command-line usage patterns
 
