@@ -459,6 +459,10 @@ def process_excel_files(order_file: str, payment_file: str, verbose: bool = Fals
     
     if verbose:
         print("Matching process completed.")
+    
+    # 添加"销售报表账期"列
+    order_df = add_sales_report_period(order_df, verbose=verbose)
+    
     return order_df
 
 
@@ -512,3 +516,113 @@ def write_result_file(df: pd.DataFrame, file_path: Path) -> None:
             engine = 'openpyxl'
         
         df.to_excel(file_path, index=False, engine=engine)
+
+
+def add_sales_report_period(order_df: pd.DataFrame, verbose: bool = False) -> pd.DataFrame:
+    """
+    为订单明细添加"销售报表账期"列，根据以下规则标记：
+    
+    1. 识别订单号重复的行：
+       - 如果两个订单号一样的订单，合并计算订单金额
+       - 结果是0，标记为"全退"
+       - 结果不是0，不标记不处理
+    
+    2. 订单状态为"已取消"并且订单金额为0的订单：
+       - 在"销售报表账期"标记为"已取消"
+       - 订单金额不是0，不标记不处理
+    
+    Args:
+        order_df: 订单数据DataFrame
+        verbose: 是否打印详细日志
+    
+    Returns:
+        添加了"销售报表账期"列的DataFrame
+    """
+    # 复制DataFrame避免修改原数据
+    df = order_df.copy()
+    
+    # 初始化"销售报表账期"列
+    if '销售报表账期' not in df.columns:
+        df['销售报表账期'] = None
+    else:
+        # 清空已有值，重新计算
+        df['销售报表账期'] = None
+    
+    # 确保订单号列为字符串类型
+    if '订单号' in df.columns:
+        df['订单号'] = df['订单号'].astype(str)
+    
+    if verbose:
+        print("\n=== 开始计算销售报表账期 ===")
+        print(f"总行数: {len(df)}")
+    
+    # 规则1: 识别订单号重复的行，合并计算订单金额
+    if '订单号' in df.columns and '订单金额' in df.columns:
+        # 将订单金额转为数值类型
+        df['_订单金额_numeric'] = pd.to_numeric(df['订单金额'], errors='coerce').fillna(0)
+        
+        # 按订单号分组，计算金额总和
+        order_amount_sum = df.groupby('订单号')['_订单金额_numeric'].sum()
+        
+        # 找出订单号重复的行（即出现次数 > 1）
+        order_counts = df['订单号'].value_counts()
+        duplicate_orders = order_counts[order_counts > 1].index.tolist()
+        
+        if verbose:
+            print(f"发现 {len(duplicate_orders)} 个重复订单号")
+        
+        # 对每个重复订单进行处理
+        for order_no in duplicate_orders:
+            # 获取该订单号对应的所有行索引
+            order_indices = df[df['订单号'] == order_no].index.tolist()
+            
+            # 计算该订单号的金额总和
+            total_amount = order_amount_sum[order_no]
+            
+            if verbose:
+                print(f"  订单号 {order_no}: {len(order_indices)} 行, 金额合计={total_amount}")
+            
+            # 如果金额合计为0，标记为"全退"
+            if total_amount == 0:
+                for idx in order_indices:
+                    df.at[idx, '销售报表账期'] = '全退'
+                if verbose:
+                    print(f"    -> 标记为'全退'")
+        
+        # 删除临时列
+        df.drop(columns=['_订单金额_numeric'], inplace=True)
+    
+    # 规则2: 订单状态为"已取消"且订单金额为0的订单
+    if '订单状态' in df.columns and '订单金额' in df.columns:
+        # 识别需要标记的行：订单状态包含"取消"且金额为0
+        cancel_mask = (
+            df['订单状态'].astype(str).str.contains('取消', na=False) &
+            (pd.to_numeric(df['订单金额'], errors='coerce') == 0)
+        )
+        
+        # 获取需要标记的行索引
+        cancel_indices = df[cancel_mask].index.tolist()
+        
+        if verbose:
+            print(f"发现 {len(cancel_indices)} 个已取消且金额为0的订单")
+        
+        # 标记为"已取消"
+        for idx in cancel_indices:
+            # 只有在未标记的情况下才标记（避免覆盖"全退"标记）
+            if pd.isna(df.at[idx, '销售报表账期']):
+                df.at[idx, '销售报表账期'] = '已取消'
+                if verbose:
+                    order_no = df.at[idx, '订单号'] if '订单号' in df.columns else 'N/A'
+                    print(f"  订单号 {order_no}: 标记为'已取消'")
+    
+    if verbose:
+        # 统计最终标记情况
+        marked_count = df['销售报表账期'].notna().sum()
+        full_refund_count = (df['销售报表账期'] == '全退').sum()
+        cancelled_count = (df['销售报表账期'] == '已取消').sum()
+        print(f"\n=== 销售报表账期标记完成 ===")
+        print(f"已标记: {marked_count} 行")
+        print(f"  - 全退: {full_refund_count} 行")
+        print(f"  - 已取消: {cancelled_count} 行")
+    
+    return df
