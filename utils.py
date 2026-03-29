@@ -751,9 +751,9 @@ def filter_unmarked_and_generate_report(
 
     流程：
     1. 过滤掉已标记的数据（"销售报表账期"列不为空的行）
-    2. 筛选出"出行日期"指定月份（例如2026年2月）的数据
+    2. 筛选出"出发日期"指定月份（例如2026年2月）的数据
     3. 往前查一年（例如2026年2月往前查一年是2025年2月到2026年2月）
-    4. 从所有未标记的数据中，找出"出行日期"在这一年内范围的所有数据
+    4. 从所有未标记的数据中，找出"出发日期"在这一年内范围的所有数据
     5. 生成一个新的Excel文档，包含这些筛选出的数据
     6. 同时，将被复制的原Excel表格中这些被复制的数据行，
        在"销售报表账期"列填上"销售报表202602"
@@ -797,13 +797,22 @@ def filter_unmarked_and_generate_report(
         print(f"  已标记行数: {marked_count}")
         print(f"  未标记行数: {len(unmarked_df)}")
 
-    # 步骤2 & 3 & 4: 筛选出行日期在指定月份往前一年范围内的数据
-    if "出行日期" not in unmarked_df.columns:
+    # 步骤2 & 3 & 4: 筛选出发日期在指定月份往前一年范围内的数据
+    # 支持"出发日期"和"出行日期"两种列名
+    date_col = None
+    for col in ["出发日期", "出行日期"]:
+        if col in unmarked_df.columns:
+            date_col = col
+            break
+    
+    if date_col is None:
         if verbose:
-            print("\n⚠️ 警告: 数据中没有'出行日期'列，跳过日期筛选")
-        # 如果没有出行日期列，返回空的筛选结果
+            print("\n⚠️ 警告: 数据中没有'出发日期'或'出行日期'列，跳过日期筛选")
+        # 如果没有日期列，返回空的筛选结果
         filtered_df = pd.DataFrame()
     else:
+        if verbose:
+            print(f"\n使用日期列: {date_col}")
         # 解析目标月份
         try:
             target_year = int(target_month[:4])
@@ -832,10 +841,10 @@ def filter_unmarked_and_generate_report(
             print(f"  目标月份: {target_month}")
             print(f"  往前查一年范围: {start_month_str} 至 {end_month_str}")
 
-        # 解析每行的出行日期，筛选在范围内且未标记的数据
+        # 解析每行的出发日期，筛选在范围内且未标记的数据
         filtered_indices = []
         for idx, row in unmarked_df.iterrows():
-            travel_date_str = get_year_month(row.get("出行日期"))
+            travel_date_str = get_year_month(row.get(date_col))
             if travel_date_str is None:
                 continue
 
