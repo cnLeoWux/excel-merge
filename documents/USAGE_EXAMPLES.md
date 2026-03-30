@@ -1,187 +1,255 @@
 # Excel Merge Tool - Usage Examples
 
-## Overview
+## Installation
 
-This document provides detailed examples of how to use the Excel Merge Tool, including sample data formats, command-line usage, and expected output.
+```bash
+# 安装依赖
+pip install -r requirements.txt
+
+# 可选：注册控制台命令
+pip install -e .
+```
+
+安装后可使用 `excel-merge`（交互式）和 `excel-merge-cli`（CLI）命令。
+
+---
+
+## Interactive Mode (交互式)
+
+```bash
+python excel_merge.py
+# 或安装后：
+excel-merge
+```
+
+程序会列出 `ExcelForHandel/` 目录下的所有文件，按编号选择订单文件和支付文件：
+
+```
+Excel Merge Tool
+Available files in ExcelForHandel directory:
+1. orders_202602.xlsx
+2. payments_202602.csv
+3. refunds_202602.xlsx
+
+Select the first Excel file (order data) by number: 1
+Select the second Excel file (payment/refund data) by number: 2
+```
+
+处理完成后直接修改原订单文件。
+
+---
+
+## CLI Mode (命令行)
+
+### 基本用法
+
+```bash
+# 直接修改原订单文件
+python cli.py order.xlsx payment.xlsx
+
+# 或安装后：
+excel-merge-cli order.xlsx payment.xlsx
+```
+
+### 指定输出文件
+
+```bash
+python cli.py order.xlsx payment.xlsx -o result.xlsx
+```
+
+### 销售报表工作流
+
+```bash
+# 完整工作流：匹配 + 标记 + 生成月度报表
+python cli.py order.xlsx payment.xlsx --month 202602
+
+# 指定报表输出目录
+python cli.py order.xlsx payment.xlsx --month 202602 --output-dir ./reports
+
+# 同时指定输出文件和报表目录
+python cli.py order.xlsx payment.xlsx -o updated_order.xlsx --month 202602 --output-dir ./reports
+```
+
+`--month` 触发完整销售报表工作流：
+1. 匹配支付手续费
+2. 标记"全退"和"已取消"订单
+3. 筛选出行日期在目标月份前1年范围内的未标记数据
+4. 生成 `report_YYYYMM.xlsx`
+
+### CLI 参数一览
+
+| 参数 | 说明 | 必填 |
+|------|------|------|
+| `order_file` | 订单数据文件路径 | 是 |
+| `payment_file` | 支付流水文件路径 | 是 |
+| `-o`, `--output` | 输出文件路径（默认覆盖原文件） | 否 |
+| `--month` | 目标月份 YYYYMM，触发销售报表工作流 | 否 |
+| `--output-dir` | 报表输出目录 | 否 |
+
+---
+
+## Flask API Mode (HTTP 服务)
+
+### 启动服务
+
+```bash
+python excel_merge_api.py
+```
+
+服务运行在 `http://localhost:5000`，提供 Web 测试页面。
+
+### API Endpoints
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/` | Web 测试页面（含文件上传表单） |
+| GET | `/health` | 健康检查 |
+| POST | `/merge` | 上传文件，直接返回处理后的文件 |
+| POST | `/merge/json` | 上传文件，返回 JSON（含下载链接和统计） |
+| GET | `/download/<filename>` | 下载结果文件 |
+
+### cURL: 直接下载结果
+
+```bash
+curl -X POST http://localhost:5000/merge \
+  -F "order_file=@orders.xlsx" \
+  -F "payment_file=@payments.xlsx" \
+  --output merged_result.xlsx
+```
+
+### cURL: JSON 模式
+
+```bash
+curl -X POST http://localhost:5000/merge/json \
+  -F "order_file=@orders.xlsx" \
+  -F "payment_file=@payments.csv"
+```
+
+返回示例：
+```json
+{
+  "success": true,
+  "session_id": "a1b2c3d4",
+  "download_url": "/download/merged_result_20260330_143022_a1b2c3d4.xlsx",
+  "statistics": {
+    "total_rows": 150,
+    "matched_rows": 142,
+    "match_rate": "94.7%"
+  },
+  "files": {
+    "order": "orders.xlsx",
+    "payment": "payments.csv",
+    "result": "merged_result_20260330_143022_a1b2c3d4.xlsx"
+  }
+}
+```
+
+### cURL: 下载文件
+
+```bash
+curl http://localhost:5000/download/merged_result_20260330_143022_a1b2c3d4.xlsx \
+  --output result.xlsx
+```
+
+### cURL: 健康检查
+
+```bash
+curl http://localhost:5000/health
+```
+
+```json
+{
+  "status": "healthy",
+  "timestamp": "2026-03-30T14:30:22.123456",
+  "service": "excel-merge-api"
+}
+```
+
+### Python requests 示例
+
+```python
+import requests
+
+# 方式1：直接获取文件
+url = "http://localhost:5000/merge"
+files = {
+    'order_file': open('orders.xlsx', 'rb'),
+    'payment_file': open('payments.xlsx', 'rb')
+}
+response = requests.post(url, files=files)
+with open('result.xlsx', 'wb') as f:
+    f.write(response.content)
+
+# 方式2：JSON 模式
+url_json = "http://localhost:5000/merge/json"
+response = requests.post(url_json, files=files)
+data = response.json()
+print(f"匹配率: {data['statistics']['match_rate']}")
+
+# 下载结果
+download_url = f"http://localhost:5000{data['download_url']}"
+result = requests.get(download_url)
+with open('result.xlsx', 'wb') as f:
+    f.write(result.content)
+```
+
+---
 
 ## Sample Data Formats
 
-### Order File (First File) - Sample.xlsx
+### 订单文件
+
+| 订单号 | 外部订单号 | 订单金额 | 订单状态 | 出行日期 | 支付手续费 |
+|--------|-----------|---------|---------|---------|-----------|
+| 40250702110303185340xx | P2507021103060001 | 100.00 | 已确认 | 2025-07-15 | (待填充) |
+| 40250701232642050749xx | P2507012326430003 | -50.00 | 已退款 | 2025-07-10 | (待填充) |
+| 40250709224606388514xx | P2507092246080005 | 0.00 | 已取消 | 2025-07-20 | (待填充) |
+
+### 支付流水文件
+
+| 商户订单号 | 商品名称 | 业务类型 | 支出金额（-元） | 收入金额（+元） |
+|-----------|---------|---------|---------------|---------------|
+| 40250702110303185340yy | 吉祥旅游支付订单-P2507021103060001 | 收费 | -2.50 | |
+| 40250701232642050749yy | 吉祥旅游支付订单-P2507012326430003 | 退费 | | 1.20 |
+
+注意：
+- 商户订单号列通过列名包含"商户"+"订单"自动定位
+- 金额列名使用全角括号（`（` `）`）
+- CSV 文件可以有 `#` 开头的注释行
+
+---
+
+## Matching Examples
+
+### 场景1：精确匹配（20字符）
+
+订单号 `40250702110303185340xx` 的前20字符 `40250702110303185340` 与商户订单号 `40250702110303185340yy` 的前20字符相同 → 匹配成功。订单金额 > 0（正单），业务类型为"收费" → 校验通过。支付手续费 = 支出金额（-元）= -2.50。
+
+### 场景2：P-number 匹配
+
+订单号不足20字符，回退到 P-number 匹配。从外部订单号 `P2507012326430003` 和商品名称 `吉祥旅游支付订单-P2507012326430003` 中分别提取出相同的 P-number → 匹配成功。订单金额 < 0（退单），业务类型为"退费" → 校验通过。支付手续费 = 收入金额（+元）= 1.20。
+
+### 场景3：零金额跳过
+
+订单金额 = 0.00 → 直接设 `支付手续费 = 0.0`，不进行匹配。
+
+---
+
+## Troubleshooting
+
+### 文件找不到
 ```
-订单号                    外部订单号           订单金额    支付手续费
-4025070211030318534001   P2507021103060001   100.00
-4025070123264205074902   P2507012326430003   -50.00
-4025070922460638851403   P2507092246080005   0.00
+Error: File 'order_data.xlsx' does not exist.
 ```
+确认文件在当前工作目录或 `ExcelForHandel/` 子目录中。
 
-### Payment/Refund File (Second File) - Payments.csv
-```
-# This is a comment line
-# Another comment
-# Third comment
-# Fourth comment
-商户订单号                商品名称                             业务类型  支出金额（-元）  收入金额（+元）
-202507016056240801       吉祥旅游支付订单-P2507011154530001    收费      -2.50
-202507016057044302       吉祥旅游支付订单-P2507011730520002    退费                  1.20
-202507016057868103       吉祥旅游支付订单-P2507092246080005    收费      -1.00
-```
+### 编码错误
+工具会自动按 `gbk → utf-8 → gb2312 → latin-1 → utf-8-sig` 顺序尝试。如仍失败，建议将 CSV 另存为 UTF-8 编码。
 
-## Expected Matching Process
+### 订单号变成科学计数法
+工具已强制将订单号列转为字符串。如仍有问题，检查原始文件中该列是否被 Excel 格式化为数字。
 
-### Example 1: Regular Order Match
-- Order: 订单号=4025070211030318534001, 外部订单号=P2507021103060001, 订单金额=100.00 (正单)
-- Payment: 商户订单号=202507016056240801, 商品名称=吉祥旅游支付订单-P2507011154530001, 业务类型=收费
-- Process:
-  1. Extract first 20 chars: 40250702110303185340 == 202507016056240801 (No match)
-  2. Extract P-number: P2507021103060001 vs P2507011154530001 (No match)
-  3. No match found - 支付手续费 remains empty or set to 0
-
-### Example 2: Refund Order Match
-- Order: 订单号=4025070123264205074902, 外部订单号=P2507012326430003, 订单金额=-50.00 (退单)
-- Payment: 商户订单号=202507016057044302, 商品名称=吉祥旅游支付订单-P2507011730520002, 业务类型=退费
-- Process:
-  1. Extract first 20 chars: 40250701232642050749 == 202507016057044302 (No match)
-  2. Extract P-number: P2507012326430003 vs P2507011730520002 (No match)
-  3. No match found - 支付手续费 remains empty or set to 0
-
-## Command-Line Usage Examples
-
-### Basic Usage
-```bash
-# Process two files and modify the first file in-place
-python cli.py order_data.xlsx payment_data.xlsx
-
-# Process two files and save to a specific output file
-python cli.py order_data.xlsx payment_data.xlsx -o result.xlsx
-
-# Process CSV files
-python cli.py order_data.csv payment_data.csv
-
-# Process with mixed file types
-python cli.py order_data.xlsx payment_data.csv
-```
-
-### Interactive Mode Usage
-```bash
-# Run in interactive mode
-python excel_merge.py
-
-# Follow the prompts:
-# Enter the path/name of the first Excel file (order data): order_data.xlsx
-# Enter the path/name of the second Excel file (payment/refund data): payment_data.xlsx
-```
-
-### File Location Examples
-```bash
-# Files in current directory
-python cli.py order_data.xlsx payment_data.xlsx
-
-# Files in ExcelForHandel subdirectory (interactive mode will find these)
-python excel_merge.py
-# Enter: order_data.xlsx
-# Enter: payment_data.xlsx
-
-# Full paths
-python cli.py /full/path/to/order_data.xlsx /full/path/to/payment_data.xlsx
-
-# Relative paths
-python cli.py ./data/orders.xlsx ./data/payments.xlsx
-```
-
-## Processing Output Example
-
-When running the tool, you'll see output like:
-
-```
-Starting matching process...
-
---- Processing Order Row 0 ---
-  Full Order Number: 4025070211030318534001
-  External Order Number: P2507021103060001
-  Truncated Order Number (first 20 chars): 40250702110303185340
-  Raw Order Amount: 100.0
-  Converted Order Amount: 100.0
-Row 0: Processing - Order No: 40250702110303185340, External Order: P2507021103060001, Amount: 100.0 (正单(Regular))
-    Processing Payment Row 0:
-      Payment '商户订单号': 202507016056240801
-      Length of '商户订单号': 18 characters
-      '商户订单号' has less than 20 digits, skipping order number matching
-      Payment '商品名称': 吉祥旅游支付订单-P2507011154530001
-      Extracted P-number from product name: P2507011154530001
-      Part after last hyphen: P2507011154530001
-      External order number: 'P2507021103060001'
-      Comparing external order no with product after hyphen: 'P2507021103060001' == 'P2507011154530001' -> False
-      Falling back to P-number match
-      P-number match result: False
-  Checking payment row 0: 商户订单号: None, 商品名称: 吉祥旅游支付订单-P2507011154530001, Extracted P-number: P2507011154530001, 业务类型: 收费
-    - Business type matches: 收费 for 正单(Regular)
-    - Overall match result: (False OR False) AND True = False
-    - No matches found for this order
-...
-Matching process completed.
-Original file updated: order_data.xlsx
-```
-
-## Encoding and Format Examples
-
-### UTF-8 CSV
-```
-订单号,外部订单号,订单金额
-4025070211030318534001,P2507021103060001,100.00
-```
-
-### GBK CSV (Chinese characters)
-```
-订单号,外部订单号,订单金额
-4025070211030318534001,P2507021103060001,100.00
-```
-
-### CSV with Comments
-```
-# This file contains order data
-# Generated on 2023-01-01
-# Do not modify manually
-# Header starts on next line
-订单号,外部订单号,订单金额
-4025070211030318534001,P2507021103060001,100.00
-```
-
-## Common Scenarios and Expected Results
-
-### Scenario 1: Successful Match
-- Input: Order with 订单号=4025070211030318534001, 订单金额=100.00 (正单)
-- Payment: Record with 商户订单号=4025070211030318534002 (first 20 chars match), 业务类型=收费
-- Result: 支付手续费 = 支出金额（-元） from matching payment record
-
-### Scenario 2: Refund Order Match
-- Input: Order with 订单号=4025070123264205074902, 订单金额=-50.00 (退单)
-- Payment: Record with 商户订单号=4025070123264205074903 (first 20 chars match), 业务类型=退费
-- Result: 支付手续费 = 收入金额（+元） from matching payment record
-
-### Scenario 3: Zero Amount Order
-- Input: Order with 订单金额=0.00
-- Result: 支付手续费 automatically set to 0.00, no matching performed
-
-### Scenario 4: No Match Found
-- Input: Order with no corresponding payment record
-- Result: 支付手续费 remains unchanged (or set to null if not present)
-
-## Troubleshooting Examples
-
-### Error: File Not Found
-```
-Error: File 'order_data.xlsx' does not exist in current directory or ExcelForHandel subdirectory.
-```
-**Solution**: Verify the file exists in the current directory or ExcelForHandel subdirectory, or provide the full path.
-
-### Error: Encoding Issues
-```
-Error processing files: 'utf-8' codec can't decode byte 0xa1 in position 0: invalid start byte
-```
-**Solution**: The tool automatically tries different encodings (GBK, GB2312, Latin-1) as fallbacks.
-
-### Error: Invalid Data Types
-```
-Error processing files: could not convert string to float: 'N/A'
-```
-**Solution**: Ensure numeric columns (like 订单金额) contain valid numeric values or empty cells.
+### API 上传失败
+- 检查文件扩展名：仅支持 `.xlsx`、`.xls`、`.csv`
+- 检查文件大小：上限 16MB
+- 确认 form field 名为 `order_file` 和 `payment_file`
