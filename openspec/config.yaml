@@ -1,20 +1,57 @@
 schema: spec-driven
 
-# Project context (optional)
-# This is shown to AI when creating artifacts.
-# Add your tech stack, conventions, style guides, domain knowledge, etc.
-# Example:
-#   context: |
-#     Tech stack: TypeScript, React, Node.js
-#     We use conventional commits
-#     Domain: e-commerce platform
+context: |
+  ## 技术栈
+  Python 3.7+, pandas>=1.3.0, openpyxl>=3.0.0, xlrd>=2.0.0, Flask>=2.0.0, werkzeug>=2.0.0
 
-# Per-artifact rules (optional)
-# Add custom rules for specific artifacts.
-# Example:
-#   rules:
-#     proposal:
-#       - Keep proposals under 500 words
-#       - Always include a "Non-goals" section
-#     tasks:
-#       - Break tasks into chunks of max 2 hours
+  ## 项目概要
+  Excel Merge Tool：将订单 Excel/CSV 文件与支付流水文件进行匹配，填充"支付手续费"列。
+  支持三种入口：交互式命令行、CLI 参数模式、Flask HTTP API。
+  另有销售报表账期标注和月度报表生成功能。
+
+  ## 架构
+  - utils.py：核心业务逻辑（~930 行），包含匹配、读写、报表全部逻辑
+  - cli.py：CLI 入口（argparse），支持 -o、--month、--output-dir
+  - excel_merge.py：交互式入口，从 ExcelForHandel/ 选择文件
+  - excel_merge_api.py：Flask API（/merge, /merge/json, /download/<file>, /health）
+  - setup.py：包配置，console_scripts: excel-merge, excel-merge-cli
+
+  ## 核心约定
+  - 匹配优先级：20字符精确匹配 → P-number 匹配 → 连字符匹配
+  - 业务类型校验：正单匹配"收费"/"服务费"，退单匹配"退费"/"退款"
+  - 编码回退链：gbk → utf-8 → gb2312 → latin-1 → utf-8-sig
+  - 列名使用中文（订单号、商户订单号、支付手续费等）
+  - 默认原地修改原始订单文件（CLI 用 -o 可重定向）
+  - CSV 注释行（# 开头）自动跳过
+  - 订单号列强制为字符串类型，防止 Excel 数字转换
+
+  ## 代码风格
+  - PEP 8，4 空格缩进
+  - 函数签名使用类型提示（Optional[str], pd.DataFrame, Path）
+  - snake_case 命名
+  - import 顺序：标准库 → 第三方 → 本地（绝对导入）
+  - verbose: bool = False 模式用于调试输出
+
+  ## 重要约束
+  - P-number 正则 r"P\d+" 区分大小写
+  - 金额列名包含全角括号：支出金额（-元）、收入金额（+元）
+  - 无 CI/CD、无 linter/formatter 配置、无 pyproject.toml
+  - 测试文件为手动脚本（无断言），不是真正的 pytest 套件
+
+rules:
+  proposal:
+    - 用中文撰写 proposal
+    - 始终包含"非目标"（Non-goals）部分
+    - 影响分析须具体到文件和函数名
+  specs:
+    - 用 WHEN/THEN/AND 格式定义可测试的场景
+    - 涉及匹配逻辑时须覆盖正单、退单、零金额三种情况
+    - 涉及文件读取时须覆盖 CSV 和 Excel 两种格式
+  design:
+    - 始终说明对 utils.py 现有函数的影响
+    - 新函数须遵循 verbose: bool = False 参数模式
+    - 涉及列操作时须明确中文列名
+  tasks:
+    - 每个任务应在 2 小时内可完成
+    - 须包含验证步骤（手动运行或检查输出）
+    - 涉及 utils.py 修改时须列出受影响的函数

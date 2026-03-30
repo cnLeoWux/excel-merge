@@ -1,174 +1,176 @@
+<!-- OPENSPEC:START -->
+# OpenSpec Instructions
+
+These instructions are for AI assistants working in this project.
+
+Always open `@/openspec/AGENTS.md` when the request:
+- Mentions planning or proposals (words like proposal, spec, change, plan)
+- Introduces new capabilities, breaking changes, architecture shifts, or big performance/security work
+- Sounds ambiguous and you need the authoritative spec before coding
+
+Use `@/openspec/AGENTS.md` to learn:
+- How to create and apply change proposals
+- Spec format and conventions
+- Project structure and guidelines
+
+Keep this managed block so 'openspec update' can refresh the instructions.
+
+<!-- OPENSPEC:END -->
+
 # PROJECT KNOWLEDGE BASE
 
-**Generated:** 2026-03-16
+**Generated:** 2026-03-30
+**Commit:** 3db1e5b
+**Branch:** feature/excel-merger-new-feature
 
 ## OVERVIEW
-Excel Merge Tool - matches Excel/CSV files based on business logic, processing order data with payment/refund details. Core stack: Python 3.7+, pandas, openpyxl, xlrd.
+Excel Merge Tool — matches order Excel/CSV files with payment/refund files to populate "支付手续费" column. Supports 3 entry modes (interactive, CLI, Flask API). Also generates sales report period markings and monthly reports. Core stack: Python 3.7+, pandas, openpyxl, xlrd, Flask.
 
 ## STRUCTURE
 ```
 ./
-├── cli.py                  # CLI interface (argparse)
-├── excel_merge.py          # Interactive mode entry point
-├── excel_merge_api.py      # Flask API wrapper
-├── utils.py               # Core business logic (~500 lines)
-├── setup.py              # Package config with console_scripts
-├── requirements.txt      # Dependencies
-├── openspec/            # OpenSpec configuration
-├── documents/          # Documentation files
-├── ExcelForHandel/    # Input data directory
-└── test_*.py          # Test files (4 files in root)
+├── utils.py                # Core business logic (~930 lines): matching, reading, writing, reporting
+├── cli.py                  # CLI entry (argparse): order_file payment_file [-o] [--month] [--output-dir]
+├── excel_merge.py          # Interactive entry: file picker from ExcelForHandel/
+├── excel_merge_api.py      # Flask API: /merge, /merge/json, /download/<file>, /health
+├── setup.py                # Package config: console_scripts excel-merge & excel-merge-cli
+├── requirements.txt        # Runtime deps: pandas, openpyxl, xlrd, flask, werkzeug
+├── ExcelForHandel/         # Input data directory (26 sample/test files)
+├── documents/              # ARCHITECTURE.md, TECHNICAL_DOCS.md, USAGE_EXAMPLES.md
+├── openspec/               # OpenSpec config (config.yaml, project.md, empty changes/specs)
+├── dist/                   # Distribution copy of root scripts (not a build artifact)
+├── test_*.py               # 4 ad-hoc test scripts in root (no assertions, not real pytest)
+├── check_csv.py            # CSV debug helper
+├── debug_csv.py            # CSV/encoding debug script
+├── create_sample_data.py   # Generates sample files in ExcelForHandel/
+├── verify_result.py        # Manual result verification script
+└── verify_original.py      # Manual original file verification script
 ```
 
 ## BUILD / LINT / TEST COMMANDS
 
-### Run Tests
 ```bash
-# Run all tests
-python -m pytest
-
-# Run single test file
-python -m pytest test_engine.py
-python -m pytest test_csv_reading.py
-python -m pytest test_problematic_csv.py
-python -m pytest test_engine_detection.py
-
-# Run with verbose output
-python -m pytest -v
-
-# Run specific test function (if tests use pytest structure)
-python -m pytest test_engine.py::test_function_name -v
-
-# Alternative: run test files directly
-python test_engine.py
-python test_csv_reading.py
-```
-
-### Install Dependencies
-```bash
+# Install
 pip install -r requirements.txt
+pip install -e .                    # Editable install (enables console_scripts)
 
-# Install as editable package
-pip install -e .
+# Run application
+python excel_merge.py                                           # Interactive mode
+python cli.py order.xlsx payment.xlsx                           # CLI basic
+python cli.py order.xlsx payment.xlsx -o result.xlsx            # CLI with output
+python cli.py order.xlsx payment.xlsx --month 202602 --output-dir ./reports  # Sales report workflow
+python excel_merge_api.py                                       # Flask API on 0.0.0.0:5000
+
+# Console scripts (after pip install -e .)
+excel-merge                         # Interactive mode
+excel-merge-cli                     # CLI mode
+
+# Tests (ad-hoc scripts, NOT real pytest suites — no assertions)
+python -m pytest                    # Collects test_*.py but they just print, no real assertions
+python test_engine.py               # Manual: engine detection smoke test
+python test_csv_reading.py          # Manual: CSV reading smoke test
+
+# No linter/formatter/type-checker configured
 ```
-
-### Run Application
-```bash
-# Interactive mode
-python excel_merge.py
-
-# CLI mode
-python cli.py order.xlsx payment.xlsx
-python cli.py order.xlsx payment.xlsx -o result.xlsx
-
-# Flask API mode (if implemented)
-python excel_merge_api.py
-
-# Console scripts (after pip install)
-excel-merge          # Interactive mode
-excel-merge-cli      # CLI mode
-```
-
-## CODE STYLE GUIDELINES
-
-### Imports
-- **Order**: Standard library → Third-party → Local modules
-- **Example**:
-  ```python
-  import os
-  import re
-  from pathlib import Path
-  from typing import Optional, Any
-
-  import pandas as pd
-
-  from utils import process_excel_files, find_file_path
-  ```
-- Always use absolute imports for local modules
-
-### Naming Conventions
-- **Functions**: `snake_case` (e.g., `process_excel_files`, `extract_p_number`)
-- **Variables**: `snake_case` (e.g., `order_df`, `file_path`)
-- **Constants**: `UPPER_CASE` (rarely used)
-- **Module names**: `snake_case` (e.g., `utils.py`, `cli.py`)
-- **Chinese column names** are used for business requirements (订单号, 商户订单号, etc.)
-
-### Formatting
-- **Indentation**: 4 spaces (no tabs)
-- **Line length**: ~100-120 characters (no strict limit observed)
-- **Blank lines**: 2 lines between module-level functions
-- **Docstrings**: Triple quotes for module and function documentation
-
-### Type Hints
-- Use type hints for function parameters and return types
-- Common types: `Optional[str]`, `Optional[Any]`, `pd.DataFrame`, `Path`
-- Example: `def extract_p_number(text: Any) -> Optional[str]:`
-
-### Error Handling
-- Use specific exceptions: `UnicodeDecodeError`, `pd.errors.ParserError`, `ValueError`, `TypeError`
-- Provide informative error messages with context
-- Use try/except blocks for file I/O and data parsing
-- Avoid bare `except:` clauses (use `except Exception:` if needed)
-- Print errors to stdout for user feedback in CLI mode
-
-### Functions
-- Keep functions focused and single-purpose
-- Use docstrings explaining purpose and parameters
-- Verbose flag pattern for optional debug output: `verbose: bool = False`
-- Return `Optional[T]` or `None` for functions that may fail gracefully
-
-### DataFrame Handling
-- Force string type for order number columns: `astype(str)`
-- Use pandas NA checking: `pd.isna()`, `pd.notna()`
-- Preserve original file format on write (CSV vs Excel detection)
 
 ## WHERE TO LOOK
 
 | Task | Location | Notes |
 |------|----------|-------|
-| Interactive mode | excel_merge.py | Lists files in ExcelForHandel/, prompts for selection |
-| CLI interface | cli.py | argparse wrapper, supports -o for output path |
-| Business logic | utils.py | Order-payment matching, P-number extraction, encoding handling |
-| API server | excel_merge_api.py | Flask wrapper for HTTP API |
-| Entry points | setup.py | console_scripts: excel-merge, excel-merge-cli |
-| Tests | test_*.py | 4 test files in root (not in tests/ dir) |
-| OpenSpec config | openspec/ | project.md, config.yaml |
+| Matching algorithm | utils.py `process_excel_files()` L189-518 | 20-char exact → P-number → hyphen fallback |
+| P-number extraction | utils.py `extract_p_number()` L15 | Regex `r"P\d+"`, case-sensitive |
+| File reading (CSV/Excel) | utils.py `read_file_with_appropriate_method()` L39-186 | Encoding fallback chain, comment skipping |
+| File writing | utils.py `write_result_file()` L539 | Preserves CSV vs Excel format |
+| Sales report period | utils.py `add_sales_report_period()` L572 | Marks 全退 and 已取消 |
+| Monthly report generation | utils.py `filter_unmarked_and_generate_report()` L743 | Filters by 出行日期 window |
+| Full sales workflow | utils.py `process_sales_report_workflow()` L887 | process → filter → report |
+| CLI flags | cli.py `main_cli()` | `-o`, `--month`, `--output-dir` |
+| Interactive file picker | excel_merge.py `main()` | Lists ExcelForHandel/ contents |
+| API endpoints | excel_merge_api.py | POST /merge, POST /merge/json, GET /download/\<f\> |
+| Package entry points | setup.py `entry_points` | excel-merge → excel_merge:main, excel-merge-cli → cli:main_cli |
+| Architecture docs | documents/ARCHITECTURE.md | System design overview |
+| Technical docs | documents/TECHNICAL_DOCS.md | Implementation details |
+| Usage examples | documents/USAGE_EXAMPLES.md | Practical examples |
+| OpenSpec config | openspec/config.yaml, openspec/project.md | Schema: spec-driven |
 
 ## CODE MAP
 
-### Main Symbols (utils.py)
-| Symbol | Purpose |
-|--------|---------|
-| `process_excel_files()` | Main orchestration, iterates orders, calls matchers |
-| `extract_p_number()` | Regex extract P+digits pattern |
-| `match_orders_by_p_number()` | Match external_order_no with product_name |
-| `read_file_with_appropriate_method()` | Handles CSV/Excel with encoding fallback |
-| `write_result_file()` | Preserves original format on write |
-| `find_file_path()` | Searches current dir then ExcelForHandel/ |
+### Core Functions (utils.py)
+
+| Symbol | Line | Purpose |
+|--------|------|---------|
+| `extract_p_number(text)` | 15 | Regex `r"P\d+"` from any input → `Optional[str]` |
+| `match_orders_by_p_number(ext_no, prod_name)` | 27 | Compare P-numbers from both fields → `bool` |
+| `read_file_with_appropriate_method(file_path)` | 39 | CSV/Excel reader with encoding fallback → `DataFrame` |
+| `process_excel_files(order, payment, verbose)` | 189 | **Main matching loop**: exact→P-number→hyphen → `DataFrame` |
+| `find_file_path(filename)` | 520 | Search cwd then ExcelForHandel/ → `Path` |
+| `write_result_file(df, file_path)` | 539 | Write preserving CSV/Excel format |
+| `add_sales_report_period(order_df, verbose)` | 572 | Mark 全退/已取消 in 销售报表账期 column |
+| `parse_date(date_val)` | 687 | Multi-format date parser → `Optional[pd.Timestamp]` |
+| `get_year_month(date_val)` | 726 | Date → "YYYYMM" string |
+| `filter_unmarked_and_generate_report(...)` | 743 | Phase 2: filter unmarked rows, write report_YYYYMM.xlsx |
+| `process_sales_report_workflow(...)` | 887 | End-to-end: process + filter + report |
+
+### Dependency Graph
+```
+cli.py ──────────┐
+excel_merge.py ──┤──→ utils.py (all core logic)
+excel_merge_api.py┘
+                  ↓
+            pandas, openpyxl, xlrd, flask
+```
 
 ### Entry Points
-| Script | Function | Behavior |
-|--------|----------|----------|
-| excel_merge.py | `main()` | Interactive file selection from ExcelForHandel/ |
-| cli.py | `main_cli()` | CLI args: order_file, payment_file, optional -o output |
-| excel_merge_api.py | Flask app | HTTP API for file processing |
+| Script | Function | Console Script |
+|--------|----------|----------------|
+| excel_merge.py | `main()` | `excel-merge` |
+| cli.py | `main_cli()` | `excel-merge-cli` |
+| excel_merge_api.py | Flask app | N/A (run directly) |
 
 ## CONVENTIONS
 
-### Business Logic
-- **Order matching**: First 20 chars of "订单号" ↔ "商户订单号"
-- **P-number matching**: Extract P+digits from external_order_no and product_name
-- **Hyphen matching**: Match external_order_no with part after last "-" in product_name
-- **Order type by amount**: positive=正单(charge), negative=退单(refund), zero=skip
-- **Encoding priority**: gbk → utf-8 → gb2312 → latin-1 → utf-8-sig
-- **Type preservation**: Order numbers forced to string to prevent Excel numeric conversion
-- **CSV comments**: Lines starting with # ignored, first non-comment line = header
-- **In-place modification**: Original order file modified directly (not creating new file)
-- **File discovery**: Searches current directory → ExcelForHandel/ subdirectory
+### Matching Algorithm (priority order)
+1. **Exact match**: first 20 chars of `订单号` ↔ `商户订单号` (column found by substring "商户"+"订单")
+2. **P-number match**: `r"P\d+"` extracted from `外部订单号` ↔ `商品名称`
+3. **Hyphen match**: `外部订单号` parts ↔ last segment after "-" in `商品名称`
+4. **Business type gate**: all matches require type agreement:
+   - Regular (订单金额 > 0): payment must be "收费" or "服务费"
+   - Refund (订单金额 < 0): payment must be "退费" or "退款"
+5. **Amount assignment**:
+   - Regular → `支出金额（-元）` (expected negative)
+   - Refund → `收入金额（+元）` (expected positive)
+   - Zero amount → `支付手续费 = 0.0`, skip matching
+
+### Encoding Fallback Chain (CSV)
+`gbk → utf-8 → gb2312 → latin-1 → utf-8-sig`
+Then retry with separators `,`, `;`, `\t`, then `sep=None` auto-detect.
+
+### Excel Engine Detection
+- `.xlsx`: zipfile check → openpyxl (success) or xlrd (BadZipFile)
+- `.xls`: always xlrd
+
+### Column Name Detection
+- Business order column: first column where `"商户" in col and "订单" in col`, fallback to any containing `"订单"`
+- Order number columns forced to `str` via `astype(str)` or `dtype={"订单号": str}` to prevent numeric conversion
+- CSV columns containing `"订单"` or `"流水"` → cast to str after read
+
+### File Handling
+- **In-place modification**: default behavior overwrites original order file (use `-o` to redirect)
+- **CSV comments**: lines starting with `#` skipped; first non-comment line = header
+- **CSV write**: `utf-8-sig` encoding
+- **File discovery**: searches cwd → `ExcelForHandel/` subdirectory
+
+### Code Style
+- **Imports**: stdlib → third-party → local (absolute imports only)
+- **Naming**: `snake_case` functions/variables, Chinese column names for business fields
+- **Indentation**: 4 spaces
+- **Type hints**: used on function signatures (`Optional[str]`, `pd.DataFrame`, `Path`)
+- **Error handling**: specific exceptions preferred, `verbose: bool = False` pattern for debug output
+- **DataFrame**: `pd.isna()`/`pd.notna()` for NA checks, force string types on order columns
 
 ### Dependencies
 ```
-pandas>=1.3.0
+pandas>=1.3.0      # on_bad_lines param requires >=1.3
 openpyxl>=3.0.0
 xlrd>=2.0.0
 flask>=2.0.0
@@ -176,16 +178,42 @@ werkzeug>=2.0.0
 ```
 
 ## ANTI-PATTERNS (THIS PROJECT)
-- Files mixed in root directory instead of src/ structure
-- Tests placed in root instead of tests/ directory
-- No __init__.py files (not a proper Python package)
-- No .github/workflows or CI configuration
-- No linting/formatting config (flake8, black, etc.)
-- No pytest.ini or pyproject.toml for test configuration
-- No type checking with mypy
+
+### Structural
+- Flat root layout — no `src/` or package directory, no `__init__.py`
+- Tests in root (not `tests/`), ad-hoc scripts with no assertions — NOT real automated tests
+- Diagnostic scripts (`check_csv.py`, `debug_csv.py`, `verify_*.py`) mixed with production code
+- No CI/CD (.github/workflows), no linting/formatting config, no pyproject.toml, no pytest.ini
+- `dist/excel-merge-tool/` is a manual copy of root scripts, not a proper build artifact
+
+### Code Quality
+- **Bare/broad exception handlers** throughout utils.py (lines 104, 140, 161, 562, 706, 713), check_csv.py, debug_csv.py — catches `SystemExit`/`KeyboardInterrupt`, hides bugs
+- **`on_bad_lines="skip"`** silently drops malformed CSV rows
+- **`readlines()` to count comment lines** (utils.py L57-58) — reads entire file into memory
+- **Magic number `[:20]`** for order number truncation — should be a named constant
+- **`df.shape[1] > 5`** as read-success heuristic — arbitrary threshold
+- **`astype(str)` on columns** can convert NaN to literal string `"nan"`
+- **print-based logging** instead of `logging` module (utils.py imports logging but uses print)
+- **In-place file overwrite by default** — risky for production data
+
+### API-specific
+- `/merge` returns fixed XLSX mimetype regardless of actual file format
+- Upload/result dirs created at import time in cwd (`uploads/`, `results/`)
+- `MAX_CONTENT_LENGTH` declared but may not be enforced via Flask config
 
 ## UNIQUE STYLES
-- **Multiple engine detection**: zipfile check for xlsx vs xls engine selection
-- **Column name flexibility**: Search for columns containing substrings (e.g., '商户' + '订单')
-- **Verbose logging**: Optional verbose flag prints detailed matching progress
-- **Encoding fallback chain**: Try multiple encodings before failing
+- **Multiple engine detection**: zipfile probe to choose openpyxl vs xlrd
+- **Column name flexibility**: substring search for Chinese column names (e.g., `"商户" in col and "订单" in col`)
+- **Verbose logging**: optional `verbose` flag prints detailed matching progress step-by-step
+- **Encoding fallback chain**: tries 5 encodings × 3 separators before giving up
+- **Sales report workflow**: two-phase processing (match payments → generate monthly report with 1-year travel date window)
+- **P-number regex**: simple `r"P\d+"` — case-sensitive, no separators
+
+## NOTES
+- utils.py is the single monolithic module (~930 lines) containing ALL business logic
+- `process_excel_files` iterates with `iterrows()` + nested loops — O(n×m) per order×payment, slow for large datasets
+- P-number regex `r"P\d+"` is case-sensitive — won't match lowercase `p`
+- The 20-char truncation for exact matching is a hardcoded business rule from payment provider format
+- Amount columns use full-width parentheses: `支出金额（-元）`, `收入金额（+元）` — exact strings required
+- Flask API in debug mode by default (`excel_merge_api.py`)
+- `add_sales_report_period` marks "全退" when duplicate order numbers sum to zero, "已取消" when status contains "取消" and amount is 0
