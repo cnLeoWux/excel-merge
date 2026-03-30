@@ -61,6 +61,15 @@ python cli.py order.xlsx payment.xlsx -o result.xlsx
 # Sales report workflow
 python cli.py order.xlsx payment.xlsx --month 202602 --output-dir ./reports
 
+# JSON output (for AI Agent integration)
+python cli.py order.xlsx payment.xlsx --json
+
+# Quiet mode (suppress logs)
+python cli.py order.xlsx payment.xlsx --quiet
+
+# Verbose mode (detailed logs)
+python cli.py order.xlsx payment.xlsx -v
+
 # Console script
 excel-merge-cli order.xlsx payment.xlsx -o result.xlsx
 ```
@@ -72,6 +81,65 @@ excel-merge-cli order.xlsx payment.xlsx -o result.xlsx
 | `-o`, `--output` | Output file path (default: overwrite original) |
 | `--month` | Target month YYYYMM, triggers sales report workflow |
 | `--output-dir` | Output directory for generated report |
+| `--json` | Output result as JSON to stdout |
+| `--quiet` | Suppress progress logs (only errors) |
+| `-v`, `--verbose` | Increase verbosity (-v=INFO, -vv=DEBUG) |
+
+### AI Agent / Automation Mode
+
+For AI Agents and automation scripts, use non-interactive mode with JSON output:
+
+```bash
+# Non-interactive with JSON output
+python cli.py order.xlsx payment.xlsx --json --quiet
+
+# Non-interactive with excel_merge.py
+python excel_merge.py --non-interactive --order-file order.xlsx --payment-file payment.xlsx --json
+
+# Check exit code
+python cli.py order.xlsx payment.xlsx --json --quiet
+echo $?  # 0=success, 3=file not found, 4=processing error
+```
+
+#### Exit Codes
+
+| Code | Meaning | Description |
+|------|---------|-------------|
+| 0 | Success | Processing completed successfully |
+| 1 | General Error | Unexpected error occurred |
+| 2 | Usage Error | Invalid arguments or parameters |
+| 3 | File Not Found | Input file does not exist |
+| 4 | Processing Error | Error during matching or writing |
+
+#### JSON Output Format
+
+Success response:
+```json
+{
+  "ok": true,
+  "data": {
+    "output_file": "result.xlsx",
+    "statistics": {
+      "total_rows": 100,
+      "matched_rows": 85,
+      "match_rate": "85.00%"
+    }
+  },
+  "error": null
+}
+```
+
+Error response:
+```json
+{
+  "ok": false,
+  "data": null,
+  "error": {
+    "code": "file_not_found",
+    "message": "File 'order.xlsx' does not exist."
+  }
+}
+```
 
 ### Flask API
 

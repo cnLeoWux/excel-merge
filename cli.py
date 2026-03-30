@@ -1,20 +1,66 @@
-import pandas as pd
-import os
-import re
+import json
+import logging
+import sys
 from pathlib import Path
-import argparse
+
+import pandas as pd
+
 from utils import (
-    process_excel_files,
-    read_file_with_appropriate_method,
-    find_file_path,
-    write_result_file,
     add_sales_report_period,
     filter_unmarked_and_generate_report,
+    find_file_path,
+    process_excel_files,
     process_sales_report_workflow,
+    read_file_with_appropriate_method,
+    write_result_file,
 )
+
+# Exit codes
+EXIT_SUCCESS = 0
+EXIT_GENERAL_ERROR = 1
+EXIT_USAGE_ERROR = 2
+EXIT_FILE_NOT_FOUND = 3
+EXIT_PROCESSING_ERROR = 4
+
+
+def output_result(data=None, error=None, json_mode=False):
+    """
+    Output result in JSON or text format.
+    
+    JSON mode: outputs envelope to stdout
+    Text mode: prints human-readable message to stdout
+    """
+    if json_mode:
+        if error:
+            result = {
+                "ok": False,
+                "data": None,
+                "error": {
+                    "code": error.get("code", "unknown_error"),
+                    "message": error.get("message", "Unknown error"),
+                },
+            }
+        else:
+            result = {
+                "ok": True,
+                "data": data,
+                "error": None,
+            }
+        print(json.dumps(result, ensure_ascii=False))
+    else:
+        # Text mode
+        if error:
+            print(f"Error: {error['message']}")
+        elif data:
+            if "output_file" in data:
+                print(f"Result saved to: {data['output_file']}")
+            elif "message" in data:
+                print(data["message"])
 
 
 def main_cli():
+    import argparse
+
     parser = argparse.ArgumentParser(
         description="Merge two Excel files based on specific matching logic."
     )
@@ -48,75 +94,187 @@ def main_cli():
         help="Output directory for the generated report",
     )
 
+    # JSON output and logging control
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Output result as JSON to stdout",
+    )
+    parser.add_argument(
+        "-v",
+        "--verbose",
+        action="count",
+        default=0,
+        help="Increase verbosity (use -v for INFO, -vv for DEBUG)",
+    )
+    parser.add_argument(
+        "--quiet",
+        action="store_true",
+        help="Suppress non-error output (only warnings and errors)",
+    )
+
     args = parser.parse_args()
+
+    # Configure logging based on flags
+    if args.quiet:
+        log_level = logging.WARNING
+    elif args.verbose >= 2:
+        log_level = logging.DEBUG
+    elif args.verbose >= 1:
+        log_level = logging.INFO
+    else:
+        log_level = logging.INFO  # Default level for backward compatibility
+    
+    logging.basicConfig(
+        level=log_level,
+        format="%(message)s",
+        stream=sys.stderr,  # Log to stderr
+    )
 
     # Check if files exist
     if not Path(args.order_file).exists():
-        print(f"Error: File '{args.order_file}' does not exist.")
-        return
+        output_result(
+            error={
+                "code": "file_not_found",
+                "message": f"File '{args.order_file}' does not exist.",
+            },
+            json_mode=args.json,
+        )
+        sys.exit(EXIT_FILE_NOT_FOUND)
 
     if not Path(args.payment_file).exists():
-        print(f"Error: File '{args.payment_file}' does not exist.")
-        return
+        output_result(
+            error={
+                "code": "file_not_found",
+                "message": f"File '{args.payment_file}' does not exist.",
+            },
+            json_mode=args.json,
+        )
+        sys.exit(EXIT_FILE_NOT_FOUND)
 
-    print(f"Processing files:")
-    print(f"  Order file: {args.order_file}")
-    print(f"  Payment/Refund file: {args.payment_file}")
+    # Only print file info in non-JSON mode without --quiet
+    if not args.json and not args.quiet:
+        print(f"Processing files:")
+        print(f"  Order file: {args.order_file}")
+        print(f"  Payment/Refund file: {args.payment_file}")
 
     try:
+        # Determine verbosity for utils functions
+        verbose = args.verbose >= 1 and not args.quiet
+
         # 判断是否执行第二阶段工作流
         if args.month:
             # 第二阶段：完整工作流（处理 + 标记 + 生成报表）
-            print(f"\n执行完整销售报表工作流...")
-            print(f"  目标月份: {args.month}")
+            if not args.json and not args.quiet:
+                print(f"\n执行完整销售报表工作流...")
+                print(f"  目标月份: {args.month}")
 
             updated_df, report_df = process_sales_report_workflow(
                 args.order_file,
                 args.payment_file,
                 args.month,
                 output_dir=args.output_dir,
-                verbose=True,
+                verbose=verbose,
             )
 
             # 保存更新后的原文件
             if args.output:
                 output_path = Path(args.output)
                 write_result_file(updated_df, output_path)
-                print(f"\n更新后的文件已保存到: {args.output}")
+                if not args.json and not args.quiet:
+                    print(f"\n更新后的文件已保存到: {args.output}")
             else:
                 original_file_path = Path(args.order_file)
                 write_result_file(updated_df, original_file_path)
-                print(f"\n原始文件已更新: {args.order_file}")
+                if not args.json and not args.quiet:
+                    print(f"\n原始文件已更新: {args.order_file}")
 
             # 报告生成的报表
+            report_file = None
             if len(report_df) > 0:
                 report_filename = f"report_{args.month}.xlsx"
-                print(f"\n新报表文件: {report_filename}")
-                print(f"包含 {len(report_df)} 行数据")
+                report_file = str(Path(args.output_dir or ".") / report_filename)
+                if not args.json and not args.quiet:
+                    print(f"\n新报表文件: {report_filename}")
+                    print(f"包含 {len(report_df)} 行数据")
             else:
-                print(f"\n没有符合条件的数据生成报表")
+                if not args.json and not args.quiet:
+                    print(f"\n没有符合条件的数据生成报表")
+
+            # Calculate statistics
+            total_rows = len(updated_df)
+            matched_rows = updated_df["支付手续费"].notna().sum()
+            match_rate = f"{(matched_rows / total_rows * 100):.2f}%" if total_rows > 0 else "0.00%"
+
+            output_result(
+                data={
+                    "output_file": str(args.output or args.order_file),
+                    "statistics": {
+                        "total_rows": total_rows,
+                        "matched_rows": int(matched_rows),
+                        "match_rate": match_rate,
+                    },
+                    "report_file": report_file,
+                    "report_rows": len(report_df) if len(report_df) > 0 else 0,
+                },
+                json_mode=args.json,
+            )
         else:
             # 原有逻辑：只处理匹配，不执行第二阶段
             result_df = process_excel_files(
-                args.order_file, args.payment_file, verbose=True
+                args.order_file, args.payment_file, verbose=verbose
             )
 
             # If output is specified, save to that file; otherwise modify the original order file
             if args.output:
                 output_path = Path(args.output)
                 write_result_file(result_df, output_path)
-                print(f"Result saved to: {args.output}")
+                if not args.json:
+                    output_result(
+                        data={"output_file": str(args.output)},
+                        json_mode=args.json,
+                    )
             else:
                 # Modify the original order file
                 original_file_path = Path(args.order_file)
                 write_result_file(result_df, original_file_path)
-                print(f"Original file updated: {args.order_file}")
+                if not args.json:
+                    output_result(
+                        data={"output_file": str(args.order_file)},
+                        json_mode=args.json,
+                    )
+
+            # Calculate statistics for JSON output
+            if args.json:
+                total_rows = len(result_df)
+                matched_rows = result_df["支付手续费"].notna().sum()
+                match_rate = f"{(matched_rows / total_rows * 100):.2f}%" if total_rows > 0 else "0.00%"
+                output_result(
+                    data={
+                        "output_file": str(args.output or args.order_file),
+                        "statistics": {
+                            "total_rows": total_rows,
+                            "matched_rows": int(matched_rows),
+                            "match_rate": match_rate,
+                        },
+                    },
+                    json_mode=args.json,
+                )
+
+        sys.exit(EXIT_SUCCESS)
 
     except Exception as e:
-        print(f"Error processing files: {e}")
-        import traceback
-
-        traceback.print_exc()
+        output_result(
+            error={
+                "code": "processing_error",
+                "message": str(e),
+            },
+            json_mode=args.json,
+        )
+        if not args.json:
+            import traceback
+            traceback.print_exc()
+        sys.exit(EXIT_PROCESSING_ERROR)
 
 
 if __name__ == "__main__":

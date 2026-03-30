@@ -85,6 +85,112 @@ python cli.py order.xlsx payment.xlsx -o updated_order.xlsx --month 202602 --out
 | `-o`, `--output` | 输出文件路径（默认覆盖原文件） | 否 |
 | `--month` | 目标月份 YYYYMM，触发销售报表工作流 | 否 |
 | `--output-dir` | 报表输出目录 | 否 |
+| `--json` | 以 JSON 格式输出结果到 stdout | 否 |
+| `--quiet` | 静默模式，仅输出错误信息 | 否 |
+| `-v`, `--verbose` | 详细日志模式（-v=INFO, -vv=DEBUG） | 否 |
+
+---
+
+## AI Agent / Automation Mode (AI Agent / 自动化模式)
+
+适用于 AI Agent（如 Claude Code、Cursor）或自动化脚本调用，提供结构化输出和语义化退出码。
+
+### JSON Output Mode
+
+```bash
+# JSON 输出 + 静默模式（推荐用于自动化）
+python cli.py order.xlsx payment.xlsx --json --quiet
+
+# 输出示例：
+{
+  "ok": true,
+  "data": {
+    "output_file": "order.xlsx",
+    "statistics": {
+      "total_rows": 100,
+      "matched_rows": 85,
+      "match_rate": "85.00%"
+    }
+  },
+  "error": null
+}
+```
+
+### Error Handling
+
+```bash
+# 文件不存在时的错误输出
+python cli.py nonexistent.xlsx payment.xlsx --json --quiet
+
+# 输出示例：
+{
+  "ok": false,
+  "data": null,
+  "error": {
+    "code": "file_not_found",
+    "message": "File 'nonexistent.xlsx' does not exist."
+  }
+}
+
+# 检查退出码
+echo $?  # 输出: 3
+```
+
+### Exit Codes
+
+| 退出码 | 含义 | 使用场景 |
+|--------|------|----------|
+| 0 | 成功 | 处理完成，结果已输出 |
+| 1 | 通用错误 | 未预期的异常 |
+| 2 | 用法错误 | 参数无效或缺失 |
+| 3 | 文件未找到 | 输入文件不存在 |
+| 4 | 处理错误 | 匹配或写入过程中出错 |
+
+### Non-Interactive Mode (excel_merge.py)
+
+```bash
+# 使用 excel_merge.py 的非交互式模式
+python excel_merge.py --non-interactive \
+  --order-file order.xlsx \
+  --payment-file payment.xlsx \
+  --json --quiet
+
+# 自动检测非 TTY 环境（如管道输入）
+echo "" | python excel_merge.py \
+  --order-file order.xlsx \
+  --payment-file payment.xlsx \
+  --json
+
+# 缺少必要参数时的错误
+python excel_merge.py --non-interactive
+# 输出: Error: Non-interactive mode requires --order-file and --payment-file arguments.
+# 退出码: 2
+```
+
+### Python Script Integration
+
+```python
+import subprocess
+import json
+
+# Run the CLI with JSON output
+result = subprocess.run(
+    ["python", "cli.py", "order.xlsx", "payment.xlsx", "--json", "--quiet"],
+    capture_output=True,
+    text=True
+)
+
+# Parse the result
+if result.returncode == 0:
+    data = json.loads(result.stdout)
+    if data["ok"]:
+        print(f"Matched {data['data']['statistics']['matched_rows']} rows")
+        print(f"Match rate: {data['data']['statistics']['match_rate']}")
+    else:
+        print(f"Error: {data['error']['message']}")
+else:
+    print(f"Process failed with exit code: {result.returncode}")
+```
 
 ---
 

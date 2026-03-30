@@ -11,6 +11,9 @@ from typing import Optional, Any
 from datetime import datetime
 import logging
 
+# Configure logger for this module
+logger = logging.getLogger(__name__)
+
 
 def extract_p_number(text: Any) -> Optional[str]:
     """
@@ -84,7 +87,7 @@ def read_file_with_appropriate_method(file_path: str) -> pd.DataFrame:
             except pd.errors.ParserError:
                 continue
             except Exception as e:
-                print(f"Error reading CSV file with encoding {encoding}: {e}")
+                logger.warning(f"Error reading CSV file with encoding {encoding}: {e}")
                 continue
 
         # If still no success, try with different separators
@@ -202,17 +205,19 @@ def process_excel_files(
         order_df["支付手续费"] = None
 
     if verbose:
-        print("Starting matching process...")
-        print(f"Order file columns: {list(order_df.columns)}")
-        print(f"Payment file columns: {list(payment_df.columns)}")
+        logger.info("Starting matching process...")
+        logger.debug(f"Order file columns: {list(order_df.columns)}")
+        logger.debug(f"Payment file columns: {list(payment_df.columns)}")
 
     # Process each row in the order dataframe
     for idx, order_row in order_df.iterrows():
         if verbose:
-            print(f"\n--- Processing Order Row {idx} ---")
-            print(f"  Full Order Number: {order_row.get('订单号', 'N/A')}")
-            print(f"  External Order Number: {order_row.get('外部订单号', 'N/A')}")
-            print(f"  Initial Payment Fee: {order_row.get('支付手续费', 'N/A')}")
+            logger.debug(f"\n--- Processing Order Row {idx} ---")
+            logger.debug(f"  Full Order Number: {order_row.get('订单号', 'N/A')}")
+            logger.debug(
+                f"  External Order Number: {order_row.get('外部订单号', 'N/A')}"
+            )
+            logger.debug(f"  Initial Payment Fee: {order_row.get('支付手续费', 'N/A')}")
 
         # Get order number (first 20 characters)
         original_order_no = order_row.get("订单号", "")
@@ -221,33 +226,33 @@ def process_excel_files(
         # Don't skip orders with short order numbers, continue for P-number matching
         if pd.isna(original_order_no) or len(str(original_order_no)) < 20:
             if verbose:
-                print(
+                logger.debug(
                     f"Row {idx}: Order number less than 20 characters: {original_order_no}, continuing for P-number matching"
                 )
         external_order_no = order_row.get("外部订单号", None)
 
         if verbose:
-            print(f"  Truncated Order Number (first 20 chars): {order_no}")
+            logger.debug(f"  Truncated Order Number (first 20 chars): {order_no}")
 
         # Determine if it's a regular order, refund order, or skip
         order_amount_raw = order_row.get("订单金额", 0)
         if verbose:
-            print(f"  Raw Order Amount: {order_amount_raw}")
+            logger.debug(f"  Raw Order Amount: {order_amount_raw}")
 
         if pd.isna(order_amount_raw):
             order_amount = 0  # Treat NaN as 0
             if verbose:
-                print("  Order amount is NaN, setting to 0")
+                logger.debug("  Order amount is NaN, setting to 0")
         else:
             # Ensure it's a numeric value to avoid issues with string values
             try:
                 order_amount = float(order_amount_raw)
                 if verbose:
-                    print(f"  Converted Order Amount: {order_amount}")
+                    logger.debug(f"  Converted Order Amount: {order_amount}")
             except (ValueError, TypeError):
                 order_amount = 0  # Default to 0 if conversion fails
                 if verbose:
-                    print(
+                    logger.debug(
                         f"  Failed to convert amount '{order_amount_raw}' to float, setting to 0"
                     )
 
@@ -260,12 +265,12 @@ def process_excel_files(
             order_type = "退单(Refund)"
         else:  # order_amount == 0
             if verbose:
-                print(f"Row {idx}: Order amount is 0, setting 支付手续费 to 0")
+                logger.debug(f"Row {idx}: Order amount is 0, setting 支付手续费 to 0")
             order_df.at[idx, "支付手续费"] = 0.0
             continue  # Skip further processing for this row but set the fee to 0
 
         if verbose:
-            print(
+            logger.debug(
                 f"Row {idx}: Processing - Order No: {order_no}, External Order: {external_order_no}, Amount: {order_amount} ({order_type})"
             )
 
@@ -294,14 +299,14 @@ def process_excel_files(
             exact_match_rows = payment_df[exact_matches]
 
             if verbose and len(exact_match_rows) > 0:
-                print(
+                logger.debug(
                     f"  Found {len(exact_match_rows)} exact matches for order {order_no}"
                 )
         else:
             # If no column with '订单' found, skip exact match check
             exact_match_rows = payment_df.head(0)  # Empty dataframe
             if verbose:
-                print(f"  No business order column found in payment file")
+                logger.debug(f"  No business order column found in payment file")
 
         # For non-exact matches, check P-number and hyphen logic
         if len(exact_match_rows) == 0:
@@ -317,7 +322,7 @@ def process_excel_files(
                 if verbose and p_number_match:
                     external_p = extract_p_number(external_order_no)
                     product_p = extract_p_number(product_name)
-                    print(f"      P-number match: {external_p} == {product_p}")
+                    logger.debug(f"      P-number match: {external_p} == {product_p}")
 
                 # Enhanced hyphen match
                 hyphen_match = False
@@ -334,7 +339,7 @@ def process_excel_files(
                             if external_part.strip() == product_parts[-1].strip():
                                 hyphen_match = True
                                 if verbose:
-                                    print(
+                                    logger.debug(
                                         f"      Hyphen match: {external_part.strip()} == {product_parts[-1].strip()}"
                                     )
                                 break
@@ -368,7 +373,7 @@ def process_excel_files(
                         business_type_correct = True
 
                 if verbose:
-                    print(
+                    logger.debug(
                         f"      Checking payment row {p_idx}: type='{business_type_str}', charge={is_charge}, refund={is_refund}, correct={business_type_correct}"
                     )
 
@@ -376,10 +381,10 @@ def process_excel_files(
                 if (p_number_match or hyphen_match) and business_type_correct:
                     matching_payments.append(payment_row)
                     if verbose:
-                        print(f"    - Match confirmed at payment row {p_idx}")
+                        logger.debug(f"    - Match confirmed at payment row {p_idx}")
                 elif (p_number_match or hyphen_match) and not business_type_correct:
                     if verbose:
-                        print(
+                        logger.debug(
                             f"    - Skipped match at payment row {p_idx} (incorrect business type: {business_type_str})"
                         )
         else:
@@ -406,12 +411,12 @@ def process_excel_files(
                             # Regular order (positive amount) matches with charge type and non-zero expenditure
                             matching_payments.append(payment_row)
                             if verbose:
-                                print(
+                                logger.debug(
                                     f"    - Added exact match at payment row {p_idx} (charge type with non-zero expenditure)"
                                 )
                     except (ValueError, TypeError):
                         if verbose:
-                            print(
+                            logger.debug(
                                 f"    - Skipped exact match at payment row {p_idx} (invalid expenditure value)"
                             )
                 # For refund orders, we only want refund type payments that have non-zero income
@@ -423,18 +428,18 @@ def process_excel_files(
                             # Refund order (negative amount) matches with refund type and non-zero income
                             matching_payments.append(payment_row)
                             if verbose:
-                                print(
+                                logger.debug(
                                     f"    - Added exact match at payment row {p_idx} (refund type with non-zero income)"
                                 )
                     except (ValueError, TypeError):
                         if verbose:
-                            print(
+                            logger.debug(
                                 f"    - Skipped exact match at payment row {p_idx} (invalid income value)"
                             )
                 else:
                     # Skip payments with incorrect business type
                     if verbose:
-                        print(
+                        logger.debug(
                             f"    - Skipped exact match at payment row {p_idx} (incorrect business type: {business_type_str})"
                         )
 
@@ -444,10 +449,10 @@ def process_excel_files(
             income_col = "收入金额（+元）"
             expenditure_col = "支出金额（-元）"
 
-            if verbose:
-                print(
-                    f"  Using income column: {income_col}, expenditure column: {expenditure_col}"
-                )
+        if verbose:
+            logger.debug(
+                f"  Using income column: {income_col}, expenditure column: {expenditure_col}"
+            )
 
             updated = False
 
@@ -474,14 +479,16 @@ def process_excel_files(
                                 # 支出金额已经是负数，我们需要保持其负值状态
                                 order_df.at[idx, "支付手续费"] = expenditure_val
                                 if verbose:
-                                    print(
+                                    logger.debug(
                                         f"  - Updated 支付手续费 for regular order: {expenditure_val}"
                                     )
                                 updated = True
                                 break
                         except (ValueError, TypeError):
                             if verbose:
-                                print(f"  - Invalid expenditure value: {expenditure}")
+                                logger.debug(
+                                    f"  - Invalid expenditure value: {expenditure}"
+                                )
                 else:
                     # For refund order: 支付手续费 = 收入金额（+元）的值且应该为正数，代表退单后需要收回来的钱
                     if is_payment_refund:
@@ -492,24 +499,24 @@ def process_excel_files(
                                 # 收入金额已经是正数，我们需要保持其正数状态
                                 order_df.at[idx, "支付手续费"] = income_val
                                 if verbose:
-                                    print(
+                                    logger.debug(
                                         f"  - Updated 支付手续费 for refund order: {income_val}"
                                     )
                                 updated = True
                                 break
                         except (ValueError, TypeError):
                             if verbose:
-                                print(f"  - Invalid income value: {income}")
+                                logger.debug(f"  - Invalid income value: {income}")
 
             # If no valid payment found, do not update the payment fee
             if not updated and verbose:
-                print(f"  - No valid payment amount found for this order")
+                logger.debug(f"  - No valid payment amount found for this order")
         else:
             if verbose:
-                print(f"  - No matches found for this order")
+                logger.debug(f"  - No matches found for this order")
 
     if verbose:
-        print("Matching process completed.")
+        logger.info("Matching process completed.")
 
     # 添加"销售报表账期"列
     order_df = add_sales_report_period(order_df, verbose=verbose)
@@ -606,8 +613,8 @@ def add_sales_report_period(
         df["订单号"] = df["订单号"].astype(str)
 
     if verbose:
-        print("\n=== 开始计算销售报表账期 ===")
-        print(f"总行数: {len(df)}")
+        logger.info("\n=== 开始计算销售报表账期 ===")
+        logger.info(f"总行数: {len(df)}")
 
     # 规则1: 识别订单号重复的行，合并计算订单金额
     if "订单号" in df.columns and "订单金额" in df.columns:
@@ -624,7 +631,7 @@ def add_sales_report_period(
         duplicate_orders = order_counts[order_counts > 1].index.tolist()
 
         if verbose:
-            print(f"发现 {len(duplicate_orders)} 个重复订单号")
+            logger.info(f"发现 {len(duplicate_orders)} 个重复订单号")
 
         # 对每个重复订单进行处理
         for order_no in duplicate_orders:
@@ -635,7 +642,7 @@ def add_sales_report_period(
             total_amount = order_amount_sum[order_no]
 
             if verbose:
-                print(
+                logger.debug(
                     f"  订单号 {order_no}: {len(order_indices)} 行, 金额合计={total_amount}"
                 )
 
@@ -644,7 +651,7 @@ def add_sales_report_period(
                 for idx in order_indices:
                     df.at[idx, "销售报表账期"] = "全退"
                 if verbose:
-                    print(f"    -> 标记为'全退'")
+                    logger.debug(f"    -> 标记为'全退'")
 
         # 删除临时列
         df.drop(columns=["_订单金额_numeric"], inplace=True)
@@ -660,7 +667,7 @@ def add_sales_report_period(
         cancel_indices = df[cancel_mask].index.tolist()
 
         if verbose:
-            print(f"发现 {len(cancel_indices)} 个已取消且金额为0的订单")
+            logger.info(f"发现 {len(cancel_indices)} 个已取消且金额为0的订单")
 
         # 标记为"已取消"
         for idx in cancel_indices:
@@ -669,17 +676,17 @@ def add_sales_report_period(
                 df.at[idx, "销售报表账期"] = "已取消"
                 if verbose:
                     order_no = df.at[idx, "订单号"] if "订单号" in df.columns else "N/A"
-                    print(f"  订单号 {order_no}: 标记为'已取消'")
+                    logger.debug(f"  订单号 {order_no}: 标记为'已取消'")
 
     if verbose:
         # 统计最终标记情况
         marked_count = df["销售报表账期"].notna().sum()
         full_refund_count = (df["销售报表账期"] == "全退").sum()
         cancelled_count = (df["销售报表账期"] == "已取消").sum()
-        print(f"\n=== 销售报表账期标记完成 ===")
-        print(f"已标记: {marked_count} 行")
-        print(f"  - 全退: {full_refund_count} 行")
-        print(f"  - 已取消: {cancelled_count} 行")
+        logger.info(f"\n=== 销售报表账期标记完成 ===")
+        logger.info(f"已标记: {marked_count} 行")
+        logger.info(f"  - 全退: {full_refund_count} 行")
+        logger.info(f"  - 已取消: {cancelled_count} 行")
 
     return df
 
@@ -777,11 +784,11 @@ def filter_unmarked_and_generate_report(
     output_path = Path(output_dir)
 
     if verbose:
-        print("\n" + "=" * 60)
-        print("开始第二阶段：筛选未标记数据并生成新文档")
-        print("=" * 60)
-        print(f"目标月份: {target_month}")
-        print(f"原始数据总行数: {len(df)}")
+        logger.info("\n" + "=" * 60)
+        logger.info("开始第二阶段：筛选未标记数据并生成新文档")
+        logger.info("=" * 60)
+        logger.info(f"目标月份: {target_month}")
+        logger.info(f"原始数据总行数: {len(df)}")
 
     # 确保"销售报表账期"列存在
     if "销售报表账期" not in df.columns:
@@ -793,9 +800,9 @@ def filter_unmarked_and_generate_report(
 
     if verbose:
         marked_count = (~unmarked_mask).sum()
-        print(f"\n步骤1: 过滤已标记数据")
-        print(f"  已标记行数: {marked_count}")
-        print(f"  未标记行数: {len(unmarked_df)}")
+        logger.info(f"\n步骤1: 过滤已标记数据")
+        logger.info(f"  已标记行数: {marked_count}")
+        logger.info(f"  未标记行数: {len(unmarked_df)}")
 
     # 步骤2 & 3 & 4: 筛选出发日期在指定月份往前一年范围内的数据
     # 支持"出发日期"和"出行日期"两种列名
@@ -804,22 +811,22 @@ def filter_unmarked_and_generate_report(
         if col in unmarked_df.columns:
             date_col = col
             break
-    
+
     if date_col is None:
         if verbose:
-            print("\n⚠️ 警告: 数据中没有'出发日期'或'出行日期'列，跳过日期筛选")
+            logger.warning("\n警告: 数据中没有'出发日期'或'出行日期'列，跳过日期筛选")
         # 如果没有日期列，返回空的筛选结果
         filtered_df = pd.DataFrame()
     else:
         if verbose:
-            print(f"\n使用日期列: {date_col}")
+            logger.info(f"\n使用日期列: {date_col}")
         # 解析目标月份
         try:
             target_year = int(target_month[:4])
             target_month_num = int(target_month[4:6])
         except (ValueError, IndexError):
             if verbose:
-                print(f"⚠️ 无效的目标月份格式: {target_month}，跳过日期筛选")
+                logger.warning(f"无效的目标月份格式: {target_month}，跳过日期筛选")
             return df, pd.DataFrame()
 
         # 往前查一年
@@ -837,9 +844,9 @@ def filter_unmarked_and_generate_report(
         end_month_str = target_month
 
         if verbose:
-            print(f"\n步骤2 & 3 & 4: 筛选出行日期")
-            print(f"  目标月份: {target_month}")
-            print(f"  往前查一年范围: {start_month_str} 至 {end_month_str}")
+            logger.info(f"\n步骤2 & 3 & 4: 筛选出行日期")
+            logger.info(f"  目标月份: {target_month}")
+            logger.info(f"  往前查一年范围: {start_month_str} 至 {end_month_str}")
 
         # 解析每行的出发日期，筛选在范围内且未标记的数据
         filtered_indices = []
@@ -855,7 +862,7 @@ def filter_unmarked_and_generate_report(
         filtered_df = unmarked_df.loc[filtered_indices].copy()
 
         if verbose:
-            print(f"  符合条件的数据行数: {len(filtered_df)}")
+            logger.info(f"  符合条件的数据行数: {len(filtered_df)}")
 
     # 步骤5: 生成新的Excel文档
     new_report_df = pd.DataFrame()
@@ -868,8 +875,8 @@ def filter_unmarked_and_generate_report(
         filtered_df.to_excel(report_path, index=False, engine="openpyxl")
 
         if verbose:
-            print(f"\n步骤5: 生成新Excel文档")
-            print(f"  已保存到: {report_path}")
+            logger.info(f"\n步骤5: 生成新Excel文档")
+            logger.info(f"  已保存到: {report_path}")
 
         new_report_df = filtered_df.copy()
 
@@ -881,14 +888,14 @@ def filter_unmarked_and_generate_report(
             df.at[idx, "销售报表账期"] = mark_value
 
         if verbose:
-            print(f"\n步骤6: 在原Excel中标记被复制的数据")
-            print(f"  标记值: {mark_value}")
-            print(f"  标记行数: {len(filtered_df)}")
+            logger.info(f"\n步骤6: 在原Excel中标记被复制的数据")
+            logger.info(f"  标记值: {mark_value}")
+            logger.info(f"  标记行数: {len(filtered_df)}")
 
     if verbose:
-        print("\n" + "=" * 60)
-        print("第二阶段处理完成")
-        print("=" * 60)
+        logger.info("\n" + "=" * 60)
+        logger.info("第二阶段处理完成")
+        logger.info("=" * 60)
 
     return df, new_report_df
 
@@ -919,12 +926,12 @@ def process_sales_report_workflow(
         tuple: (更新后的订单DataFrame, 新生成的报表DataFrame)
     """
     if verbose:
-        print("=" * 60)
-        print("启动销售报表工作流")
-        print("=" * 60)
-        print(f"订单文件: {order_file}")
-        print(f"支付文件: {payment_file}")
-        print(f"目标月份: {target_month}")
+        logger.info("=" * 60)
+        logger.info("启动销售报表工作流")
+        logger.info("=" * 60)
+        logger.info(f"订单文件: {order_file}")
+        logger.info(f"支付文件: {payment_file}")
+        logger.info(f"目标月份: {target_month}")
 
     # 步骤1: 处理订单文件和支付文件
     result_df = process_excel_files(order_file, payment_file, verbose=verbose)

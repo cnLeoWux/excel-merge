@@ -50,6 +50,54 @@ python cli.py ./data/orders_202403.xlsx ./data/payments_202403.xlsx -o ./output/
 | `-o`, `--output` | 输出文件路径（默认覆盖原文件） | 否 |
 | `--month` | 目标月份 YYYYMM，触发销售报表工作流 | 否 |
 | `--output-dir` | 报表输出目录 | 否 |
+| `--json` | 以 JSON 格式输出结果到 stdout | 否 |
+| `--quiet` | 静默模式，仅输出错误信息 | 否 |
+| `-v`, `--verbose` | 详细日志模式（-v=INFO, -vv=DEBUG） | 否 |
+
+---
+
+### 方式二（扩展）：AI Agent / 自动化调用模式
+
+适用于 AI Agent（如 Claude Code、Cursor）或自动化脚本调用：
+
+```bash
+# JSON 输出 + 静默模式（推荐用于自动化）
+python cli.py orders.xlsx payments.xlsx --json --quiet
+
+# 检查处理结果和退出码
+python cli.py orders.xlsx payments.xlsx --json --quiet
+# 输出示例：
+# {"ok": true, "data": {"output_file": "orders.xlsx", "statistics": {...}}, "error": null}
+echo $?  # 0 表示成功
+
+# 文件不存在时的错误处理
+python cli.py nonexistent.xlsx payments.xlsx --json --quiet
+# 输出：{"ok": false, "data": null, "error": {"code": "file_not_found", "message": "..."}}
+echo $?  # 3 表示文件不存在
+```
+
+**退出码说明**：
+
+| 退出码 | 含义 | 使用场景 |
+|--------|------|----------|
+| 0 | 成功 | 处理完成，结果已输出 |
+| 1 | 通用错误 | 未预期的异常 |
+| 2 | 用法错误 | 参数无效或缺失 |
+| 3 | 文件未找到 | 输入文件不存在 |
+| 4 | 处理错误 | 匹配或写入过程中出错 |
+
+**非交互式模式**（适用于 excel_merge.py）：
+
+```bash
+# 使用 excel_merge.py 的非交互式模式
+python excel_merge.py --non-interactive \
+  --order-file orders.xlsx \
+  --payment-file payments.xlsx \
+  --json --quiet
+
+# 自动检测非 TTY 环境（如管道输入）
+echo "" | python excel_merge.py --order-file orders.xlsx --payment-file payments.xlsx
+```
 
 ---
 
