@@ -120,12 +120,17 @@ dmypy.json
 *.swp
 *.swo
 
+# Other AI tool configs
+.qwen/
+.trae/
+QWEN.md
+
 # Excel and output files
 *.xlsx
 *.xls
 *.csv
 
-# Test files
+# Ad-hoc scripts (no real tests)
 test_*.py
 debug_*.py
 check_*.py
@@ -134,6 +139,10 @@ create_sample_*.py
 
 # Data directories
 ExcelForHandel/
+
+# API temp directories
+uploads/
+results/
 
 # Temporary files
 *.tmp
