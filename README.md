@@ -74,23 +74,23 @@ python cli.py order.xlsx payment.xlsx -v
 excel-merge-cli order.xlsx payment.xlsx -o result.xlsx
 ```
 
-| Flag | Description |
-|------|-------------|
-| `order_file` | Path to order data file (required) |
-| `payment_file` | Path to payment/refund file (required) |
-| `-o`, `--output` | Output file path (default: overwrite original) |
-| `--month` | Target month YYYYMM, triggers sales report workflow |
-| `--output-dir` | Output directory for generated report |
-| `--json` | Output result as JSON to stdout |
-| `--quiet` | Suppress progress logs (only errors) |
-| `-v`, `--verbose` | Increase verbosity (-v=INFO, -vv=DEBUG) |
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `order_file` | str | *(required)* | Path to the order data file (.xlsx, .xls, .csv) |
+| `payment_file` | str | *(required)* | Path to the payment/refund data file (.xlsx, .xls, .csv) |
+| `-o`, `--output` | str | `None` (overwrite original) | Output file path; if omitted, the original order file is modified in-place |
+| `--month` | str | `None` | Target month in `YYYYMM` format (e.g., `202602`); triggers the sales report workflow |
+| `--output-dir` | str | `None` (current dir) | Output directory for the generated monthly report |
+| `--json` | flag | `False` | Output result as JSON envelope to stdout |
+| `--quiet` | flag | `False` | Suppress progress logs; only warnings and errors go to stderr |
+| `-v`, `--verbose` | count | `0` | Increase verbosity: `-v` = INFO, `-vv` = DEBUG |
 
 ### AI Agent / Automation Mode
 
-For AI Agents and automation scripts, use non-interactive mode with JSON output:
+For AI Agents and automation scripts, use `--json --quiet` for clean machine-readable output:
 
 ```bash
-# Non-interactive with JSON output
+# Recommended: JSON output + quiet mode
 python cli.py order.xlsx payment.xlsx --json --quiet
 
 # Non-interactive with excel_merge.py
@@ -101,15 +101,19 @@ python cli.py order.xlsx payment.xlsx --json --quiet
 echo $?  # 0=success, 3=file not found, 4=processing error
 ```
 
+**stdout/stderr separation**:
+- **stdout**: JSON result only (when `--json`) or result file path (text mode)
+- **stderr**: all logs, progress messages, warnings, and errors
+
 #### Exit Codes
 
-| Code | Meaning | Description |
-|------|---------|-------------|
-| 0 | Success | Processing completed successfully |
-| 1 | General Error | Unexpected error occurred |
-| 2 | Usage Error | Invalid arguments or parameters |
-| 3 | File Not Found | Input file does not exist |
-| 4 | Processing Error | Error during matching or writing |
+| Code | Constant | Meaning | Typical Trigger |
+|------|----------|---------|-----------------|
+| 0 | `EXIT_SUCCESS` | Success | Processing completed normally |
+| 1 | `EXIT_GENERAL_ERROR` | General Error | Unexpected/unhandled exception |
+| 2 | `EXIT_USAGE_ERROR` | Usage Error | Invalid or missing arguments (argparse) |
+| 3 | `EXIT_FILE_NOT_FOUND` | File Not Found | Input file does not exist |
+| 4 | `EXIT_PROCESSING_ERROR` | Processing Error | Error during matching or file writing |
 
 #### JSON Output Format
 
@@ -140,6 +144,10 @@ Error response:
   }
 }
 ```
+
+When `--month` is used, `data` also includes `"report_file"` (string or null) and `"report_rows"` (int).
+
+Possible `error.code` values: `file_not_found`, `processing_error`, `unknown_error`.
 
 ### Flask API
 

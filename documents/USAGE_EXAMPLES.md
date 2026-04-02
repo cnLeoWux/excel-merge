@@ -78,16 +78,16 @@ python cli.py order.xlsx payment.xlsx -o updated_order.xlsx --month 202602 --out
 
 ### CLI 参数一览
 
-| 参数 | 说明 | 必填 |
-|------|------|------|
-| `order_file` | 订单数据文件路径 | 是 |
-| `payment_file` | 支付流水文件路径 | 是 |
-| `-o`, `--output` | 输出文件路径（默认覆盖原文件） | 否 |
-| `--month` | 目标月份 YYYYMM，触发销售报表工作流 | 否 |
-| `--output-dir` | 报表输出目录 | 否 |
-| `--json` | 以 JSON 格式输出结果到 stdout | 否 |
-| `--quiet` | 静默模式，仅输出错误信息 | 否 |
-| `-v`, `--verbose` | 详细日志模式（-v=INFO, -vv=DEBUG） | 否 |
+| 参数 | 类型 | 默认值 | 说明 | 必填 |
+|------|------|--------|------|------|
+| `order_file` | str | *(必填)* | 订单数据文件路径（.xlsx, .xls, .csv） | 是 |
+| `payment_file` | str | *(必填)* | 支付流水文件路径（.xlsx, .xls, .csv） | 是 |
+| `-o`, `--output` | str | `None`（覆盖原文件） | 输出文件路径；省略则原地修改订单文件 | 否 |
+| `--month` | str | `None` | 目标月份 `YYYYMM` 格式（如 `202602`），触发销售报表工作流 | 否 |
+| `--output-dir` | str | `None`（当前目录） | 月度报表输出目录 | 否 |
+| `--json` | flag | `False` | 以 JSON 信封格式输出结果到 stdout | 否 |
+| `--quiet` | flag | `False` | 静默模式，仅输出警告和错误到 stderr | 否 |
+| `-v`, `--verbose` | count | `0` | 详细日志模式（-v=INFO, -vv=DEBUG） | 否 |
 
 ---
 
@@ -116,6 +116,8 @@ python cli.py order.xlsx payment.xlsx --json --quiet
 }
 ```
 
+当使用 `--month` 时，`data` 中还会包含 `"report_file"`（字符串或 null）和 `"report_rows"`（整数）。
+
 ### Error Handling
 
 ```bash
@@ -136,15 +138,24 @@ python cli.py nonexistent.xlsx payment.xlsx --json --quiet
 echo $?  # 输出: 3
 ```
 
+`error.code` 的可能值: `file_not_found`、`processing_error`、`unknown_error`。
+
 ### Exit Codes
 
-| 退出码 | 含义 | 使用场景 |
-|--------|------|----------|
-| 0 | 成功 | 处理完成，结果已输出 |
-| 1 | 通用错误 | 未预期的异常 |
-| 2 | 用法错误 | 参数无效或缺失 |
-| 3 | 文件未找到 | 输入文件不存在 |
-| 4 | 处理错误 | 匹配或写入过程中出错 |
+| 退出码 | 常量 | 含义 | 使用场景 |
+|--------|------|------|----------|
+| 0 | `EXIT_SUCCESS` | 成功 | 处理完成，结果已输出 |
+| 1 | `EXIT_GENERAL_ERROR` | 通用错误 | 未预期的异常 |
+| 2 | `EXIT_USAGE_ERROR` | 用法错误 | 参数无效或缺失 |
+| 3 | `EXIT_FILE_NOT_FOUND` | 文件未找到 | 输入文件不存在 |
+| 4 | `EXIT_PROCESSING_ERROR` | 处理错误 | 匹配或写入过程中出错 |
+
+### stdout/stderr 分离规则
+
+- **stdout**: 仅输出 JSON 结果（`--json` 模式）或结果文件路径（文本模式）
+- **stderr**: 所有日志、进度信息、警告和错误
+
+使用 `--json --quiet` 时，stdout 中仅包含 JSON 信封，所有其他输出均发送到 stderr，便于程序化解析。
 
 ### Non-Interactive Mode (excel_merge.py)
 

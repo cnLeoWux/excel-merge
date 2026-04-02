@@ -55,6 +55,142 @@ python test_csv_reading.py          # Manual: CSV reading smoke test
 # No linter/formatter/type-checker configured
 ```
 
+## CLI USAGE REFERENCE
+
+### Parameters
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `order_file` | str | *(required)* | Path to the order data file (.xlsx, .xls, .csv) |
+| `payment_file` | str | *(required)* | Path to the payment/refund data file (.xlsx, .xls, .csv) |
+| `-o`, `--output` | str | `None` (overwrite original) | Output file path; if omitted, the original order file is modified in-place |
+| `--month` | str | `None` | Target month in `YYYYMM` format (e.g., `202602`); triggers the sales report workflow |
+| `--output-dir` | str | `None` (current dir) | Output directory for the generated monthly report |
+| `--json` | flag | `False` | Output result as JSON envelope to stdout |
+| `--quiet` | flag | `False` | Suppress progress logs; only warnings and errors go to stderr |
+| `-v`, `--verbose` | count | `0` | Increase verbosity: `-v` = INFO, `-vv` = DEBUG |
+
+### Basic Matching Workflow
+
+```bash
+# Modify original order file in-place (default)
+python cli.py order.xlsx payment.xlsx
+
+# Specify output file
+python cli.py order.xlsx payment.xlsx -o result.xlsx
+
+# Console script (after pip install -e .)
+excel-merge-cli order.xlsx payment.xlsx -o result.xlsx
+```
+
+Supported file formats: `.xlsx`, `.xls`, `.csv`. Encoding is auto-detected (gbk → utf-8 → gb2312 → latin-1 → utf-8-sig).
+
+### Sales Report Workflow (`--month`)
+
+Triggered by `--month YYYYMM`. Two-phase processing:
+
+1. **Phase 1 — Match & Mark**: Run payment fee matching, then mark 销售报表账期 column:
+   - "全退": duplicate order numbers whose amounts sum to zero
+   - "已取消": order status contains "取消" and amount is 0
+2. **Phase 2 — Filter & Generate Report**: Filter unmarked rows with 出行日期 within a 1-year window of the target month, then write `report_YYYYMM.xlsx`.
+
+```bash
+# Full sales report workflow
+python cli.py order.xlsx payment.xlsx --month 202602 --output-dir ./reports
+
+# Also redirect the updated order file
+python cli.py order.xlsx payment.xlsx --month 202602 --output-dir ./reports -o updated_order.xlsx
+```
+
+Output: original order file updated (or written to `-o`) + `report_YYYYMM.xlsx` in `--output-dir` (or cwd).
+
+### JSON Output Format
+
+Use `--json` to get structured output. The envelope always has three top-level fields: `ok`, `data`, `error`.
+
+**Success** (exit code 0):
+```json
+{
+  "ok": true,
+  "data": {
+    "output_file": "result.xlsx",
+    "statistics": {
+      "total_rows": 100,
+      "matched_rows": 85,
+      "match_rate": "85.00%"
+    }
+  },
+  "error": null
+}
+```
+
+When `--month` is used, `data` also includes `"report_file"` (string or null) and `"report_rows"` (int).
+
+**Error** (exit code 3 or 4):
+```json
+{
+  "ok": false,
+  "data": null,
+  "error": {
+    "code": "file_not_found",
+    "message": "File 'order.xlsx' does not exist."
+  }
+}
+```
+
+Possible `error.code` values: `file_not_found`, `processing_error`, `unknown_error`.
+
+### Exit Codes
+
+| Code | Constant | Meaning | Typical Trigger |
+|------|----------|---------|-----------------|
+| 0 | `EXIT_SUCCESS` | Success | Processing completed normally |
+| 1 | `EXIT_GENERAL_ERROR` | General Error | Unexpected/unhandled exception |
+| 2 | `EXIT_USAGE_ERROR` | Usage Error | Invalid or missing arguments (argparse) |
+| 3 | `EXIT_FILE_NOT_FOUND` | File Not Found | Input file does not exist |
+| 4 | `EXIT_PROCESSING_ERROR` | Processing Error | Error during matching or file writing |
+
+### Agent Recommended Usage
+
+For AI Agents and automation scripts, use `--json --quiet` for clean machine-readable output:
+
+```bash
+python cli.py order.xlsx payment.xlsx --json --quiet
+```
+
+**stdout/stderr separation**:
+- **stdout**: JSON result only (when `--json`) or result file path (text mode)
+- **stderr**: all logs, progress messages, warnings, and errors
+
+Python subprocess integration:
+```python
+import subprocess, json
+
+result = subprocess.run(
+    ["python", "cli.py", "order.xlsx", "payment.xlsx", "--json", "--quiet"],
+    capture_output=True, text=True
+)
+
+if result.returncode == 0:
+    data = json.loads(result.stdout)
+    print(f"Matched {data['data']['statistics']['matched_rows']} rows")
+    print(f"Match rate: {data['data']['statistics']['match_rate']}")
+elif result.returncode == 3:
+    err = json.loads(result.stdout)
+    print(f"File not found: {err['error']['message']}")
+else:
+    print(f"Failed with exit code {result.returncode}")
+```
+
+### Common Error Scenarios
+
+| Scenario | Exit Code | `error.code` | Resolution |
+|----------|-----------|--------------|------------|
+| Input file does not exist | 3 | `file_not_found` | Verify file path; check cwd or `ExcelForHandel/` |
+| Malformed or unreadable file | 4 | `processing_error` | Confirm file is valid .xlsx/.xls/.csv; re-save as UTF-8 if CSV |
+| Missing required columns | 4 | `processing_error` | Ensure order file has 订单号, 外部订单号, 订单金额 columns |
+| Invalid CLI arguments | 2 | *(argparse prints to stderr)* | Run `python cli.py --help` to check syntax |
+
 ## WHERE TO LOOK
 
 | Task | Location | Notes |
