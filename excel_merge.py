@@ -230,6 +230,32 @@ def main():
             except ValueError:
                 print("Please enter a valid number.")
 
+        # Ask for sales report generation
+        while True:
+            run_sales_report = input("\nDo you want to generate a sales report? (y/n): ").lower().strip()
+            if run_sales_report in ['y', 'n']:
+                break
+            print("Invalid input. Please enter 'y' or 'n'.")
+
+        if run_sales_report == 'y':
+            while True:
+                month_str = input("Enter the report month (e.g., 202602): ").strip()
+                if len(month_str) == 6 and month_str.isdigit():
+                    args.month = month_str
+                    break
+                else:
+                    print("Invalid format. Please use YYYYMM format (e.g., 202602).")
+            
+            output_dir_str = input("Enter the output directory for the report (press Enter to use current directory): ").strip()
+            if output_dir_str:
+                args.output_dir = output_dir_str
+
+        output_file_str = input("Enter the output file path (press Enter to modify original file): ").strip()
+        if output_file_str:
+            args.output = output_file_str
+
+
+
     # Processing
     if not args.json and not args.quiet:
         print(f"Processing files:")

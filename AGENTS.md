@@ -47,10 +47,12 @@ python excel_merge_api.py                                       # Flask API on 0
 excel-merge                         # Interactive mode
 excel-merge-cli                     # CLI mode
 
-# Tests (ad-hoc scripts, NOT real pytest suites — no assertions)
-python -m pytest                    # Collects test_*.py but they just print, no real assertions
-python test_engine.py               # Manual: engine detection smoke test
-python test_csv_reading.py          # Manual: CSV reading smoke test
+# Tests
+pip install -r requirements-dev.txt   # Install pytest + pytest-flask
+python -m pytest                      # Run full test suite (unit + integration)
+python -m pytest tests/unit -v        # Unit tests only (utils.py logic)
+python -m pytest tests/integration -v # Integration tests (CLI subprocess + Flask test client)
+python -m pytest -k "sales_report"    # Filter by keyword
 
 # No linter/formatter/type-checker configured
 ```

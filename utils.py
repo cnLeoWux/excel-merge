@@ -309,85 +309,7 @@ def process_excel_files(
                 logger.debug(f"  No business order column found in payment file")
 
         # For non-exact matches, check P-number and hyphen logic
-        if len(exact_match_rows) == 0:
-            for p_idx, payment_row in payment_df.iterrows():
-                # Try P-number match
-                product_name = payment_row.get("商品名称", "")
-                p_number_match = False
-
-                # Enhanced P-number matching
-                p_number_match = match_orders_by_p_number(
-                    external_order_no, product_name
-                )
-                if verbose and p_number_match:
-                    external_p = extract_p_number(external_order_no)
-                    product_p = extract_p_number(product_name)
-                    logger.debug(f"      P-number match: {external_p} == {product_p}")
-
-                # Enhanced hyphen match
-                hyphen_match = False
-                if pd.notna(product_name) and pd.notna(external_order_no):
-                    external_str = str(external_order_no)
-                    product_str = str(product_name)
-
-                    if "-" in product_str:
-                        # Try matching with different separators
-                        external_parts = external_str.split()
-                        product_parts = product_str.split("-")
-
-                        for external_part in external_parts:
-                            if external_part.strip() == product_parts[-1].strip():
-                                hyphen_match = True
-                                if verbose:
-                                    logger.debug(
-                                        f"      Hyphen match: {external_part.strip()} == {product_parts[-1].strip()}"
-                                    )
-                                break
-
-                # Check business type
-                business_type = payment_row.get("业务类型", "")
-                business_type_str = str(business_type).strip()
-
-                # Check if business type matches expected values
-                is_charge = False
-                is_refund = False
-
-                if "收费" in business_type_str:
-                    is_charge = True
-                elif "退费" in business_type_str:
-                    is_refund = True
-                elif "退款" in business_type_str:
-                    is_refund = True
-                elif "服务费" in business_type_str:
-                    is_charge = True
-
-                # Determine if business type is correct
-                business_type_correct = False
-                if is_regular_order:
-                    # For regular orders, we need a '收费' type
-                    if is_charge:
-                        business_type_correct = True
-                else:
-                    # For refund orders, we need a '退费' or '退款' type
-                    if is_refund:
-                        business_type_correct = True
-
-                if verbose:
-                    logger.debug(
-                        f"      Checking payment row {p_idx}: type='{business_type_str}', charge={is_charge}, refund={is_refund}, correct={business_type_correct}"
-                    )
-
-                # If we have a match based on P-number or hyphen AND correct business type, add to matching payments
-                if (p_number_match or hyphen_match) and business_type_correct:
-                    matching_payments.append(payment_row)
-                    if verbose:
-                        logger.debug(f"    - Match confirmed at payment row {p_idx}")
-                elif (p_number_match or hyphen_match) and not business_type_correct:
-                    if verbose:
-                        logger.debug(
-                            f"    - Skipped match at payment row {p_idx} (incorrect business type: {business_type_str})"
-                        )
-        else:
+        if len(exact_match_rows) > 0:
             # Handle exact matches
             for p_idx, payment_row in exact_match_rows.iterrows():
                 # Check business type before adding to matching payments
@@ -442,6 +364,87 @@ def process_excel_files(
                         logger.debug(
                             f"    - Skipped exact match at payment row {p_idx} (incorrect business type: {business_type_str})"
                         )
+        
+        if len(matching_payments) == 0:
+            # If no exact matches were found, check P-number and hyphen logic
+            for p_idx, payment_row in payment_df.iterrows():
+                # Try P-number match
+                product_name = payment_row.get("商品名称", "")
+                p_number_match = False
+
+                # Enhanced P-number matching
+                p_number_match = match_orders_by_p_number(
+                    external_order_no, product_name
+                )
+                if verbose and p_number_match:
+                    external_p = extract_p_number(external_order_no)
+                    product_p = extract_p_number(product_name)
+                    logger.debug(f"      P-number match: {external_p} == {product_p}")
+
+                # Enhanced hyphen match
+                hyphen_match = False
+                if pd.notna(product_name) and pd.notna(external_order_no):
+                    external_str = str(external_order_no).strip()
+                    product_str = str(product_name).strip()
+
+                    if "-" in product_str:
+                        # The logic is to match any segment of external_order_no (split by '-')
+                        # with the segment *after the last hyphen* of product_name
+                        last_part = product_str.rsplit("-", 1)[-1]
+                        external_parts = external_str.split("-") if "-" in external_str else [external_str]
+                        if last_part and last_part in external_parts:
+                            hyphen_match = True
+                            if verbose:
+                                logger.debug(
+                                    f"      Hyphen match: '{last_part}' in {external_parts}"
+                                )
+
+                # Check business type
+                business_type = payment_row.get("业务类型", "")
+                business_type_str = str(business_type).strip()
+
+                # Check if business type matches expected values
+                is_charge = False
+                is_refund = False
+
+                if "收费" in business_type_str:
+                    is_charge = True
+                elif "退费" in business_type_str:
+                    is_refund = True
+                elif "退款" in business_type_str:
+                    is_refund = True
+                elif "服务费" in business_type_str:
+                    is_charge = True
+
+                # Determine if business type is correct
+                business_type_correct = False
+                if is_regular_order:
+                    # For regular orders, we need a '收费' type
+                    if is_charge:
+                        business_type_correct = True
+                else:
+                    # For refund orders, we need a '退费' or '退款' type
+                    if is_refund:
+                        business_type_correct = True
+
+                if verbose:
+                    logger.debug(
+                        f"      Checking payment row {p_idx}: type='{business_type_str}', charge={is_charge}, refund={is_refund}, correct={business_type_correct}"
+                    )
+
+                # If we have a match based on P-number or hyphen AND correct business type, add to matching payments
+                if (p_number_match or hyphen_match):
+                    # For non-exact matches, we also need to verify the business type before confirming the match.
+                    if business_type_correct:
+                        matching_payments.append(payment_row)
+                        if verbose:
+                            logger.debug(f"    - Match confirmed at payment row {p_idx}")
+                        # Since we found a valid match, we can break the inner loop to prevent subsequent rows from overwriting it.
+                        break
+                    elif verbose:
+                        logger.debug(
+                            f"    - Skipped match at payment row {p_idx} (incorrect business type: {business_type_str})"
+                        )
 
         # If matches found, get the appropriate amount and update '支付手续费'
         if matching_payments:
@@ -449,10 +452,10 @@ def process_excel_files(
             income_col = "收入金额（+元）"
             expenditure_col = "支出金额（-元）"
 
-        if verbose:
-            logger.debug(
-                f"  Using income column: {income_col}, expenditure column: {expenditure_col}"
-            )
+            if verbose:
+                logger.debug(
+                    f"  Using income column: {income_col}, expenditure column: {expenditure_col}"
+                )
 
             updated = False
 
@@ -816,53 +819,42 @@ def filter_unmarked_and_generate_report(
         if verbose:
             logger.warning("\n警告: 数据中没有'出发日期'或'出行日期'列，跳过日期筛选")
         # 如果没有日期列，返回空的筛选结果
-        filtered_df = pd.DataFrame()
-    else:
+        return df, pd.DataFrame()
+    
+    if verbose:
+        logger.info(f"\n使用日期列: {date_col}")
+    # 解析目标月份
+    try:
+        target_year = int(target_month[:4])
+        target_month_num = int(target_month[4:6])
+    except (ValueError, IndexError):
         if verbose:
-            logger.info(f"\n使用日期列: {date_col}")
-        # 解析目标月份
-        try:
-            target_year = int(target_month[:4])
-            target_month_num = int(target_month[4:6])
-        except (ValueError, IndexError):
-            if verbose:
-                logger.warning(f"无效的目标月份格式: {target_month}，跳过日期筛选")
-            return df, pd.DataFrame()
+            logger.warning(f"无效的目标月份格式: {target_month}，跳过日期筛选")
+        return df, pd.DataFrame()
 
-        # 往前查一年
-        # 2026年2月往前查一年是 2025年2月 到 2026年2月
-        # 起始月份：2025年2月
-        if target_month_num >= 12:
-            # 跨年情况：例如2月往前一年是上一年的2月
-            start_year = target_year - 1
-            start_month = target_month_num
-        else:
-            start_year = target_year - 1
-            start_month = target_month_num
+    # Date window per sales-report spec: target month ± 1 year
+    # Start: first day of (target_year - 1, target_month_num)
+    # End:   last day of  (target_year + 1, target_month_num)
+    start_date = pd.Timestamp(year=target_year - 1, month=target_month_num, day=1)
+    end_date = pd.Timestamp(year=target_year + 1, month=target_month_num, day=1) + pd.offsets.MonthEnd(0)
 
-        start_month_str = f"{start_year}{start_month:02d}"
-        end_month_str = target_month
 
-        if verbose:
-            logger.info(f"\n步骤2 & 3 & 4: 筛选出行日期")
-            logger.info(f"  目标月份: {target_month}")
-            logger.info(f"  往前查一年范围: {start_month_str} 至 {end_month_str}")
+    if verbose:
+        logger.info(f"\n步骤2 & 3 & 4: 筛选出行日期")
+        logger.info(f"  目标月份: {target_month}")
+        logger.info(f"  往前查一年范围: {start_date.strftime('%Y-%m-%d')} 至 {end_date.strftime('%Y-%m-%d')}")
 
-        # 解析每行的出发日期，筛选在范围内且未标记的数据
-        filtered_indices = []
-        for idx, row in unmarked_df.iterrows():
-            travel_date_str = get_year_month(row.get(date_col))
-            if travel_date_str is None:
-                continue
+    # 解析每行的出发日期，筛选在范围内且未标记的数据
+    unmarked_df['_travel_date'] = pd.to_datetime(unmarked_df[date_col], errors='coerce')
+    
+    date_filter_mask = (unmarked_df['_travel_date'] >= start_date) & (unmarked_df['_travel_date'] <= end_date)
+    
+    filtered_df = unmarked_df[date_filter_mask].copy()
+    filtered_df.drop(columns=['_travel_date'], inplace=True)
 
-            # 检查是否在范围内（包括起始月和结束月）
-            if start_month_str <= travel_date_str <= end_month_str:
-                filtered_indices.append(idx)
 
-        filtered_df = unmarked_df.loc[filtered_indices].copy()
-
-        if verbose:
-            logger.info(f"  符合条件的数据行数: {len(filtered_df)}")
+    if verbose:
+        logger.info(f"  符合条件的数据行数: {len(filtered_df)}")
 
     # 步骤5: 生成新的Excel文档
     new_report_df = pd.DataFrame()

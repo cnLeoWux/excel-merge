@@ -47,7 +47,11 @@ python excel_merge.py
 excel-merge
 ```
 
-Lists files in `ExcelForHandel/` for interactive selection.
+Lists files in `ExcelForHandel/` for interactive selection. The script will guide you to:
+1. Select the order and payment files.
+2. Optionally trigger the sales report workflow by providing a month (`YYYYMM`).
+3. Specify an output file path (or modify the original in-place).
+4. Specify an output directory for the sales report if the workflow is triggered.
 
 ### CLI Mode
 
@@ -160,8 +164,8 @@ python excel_merge_api.py
 |--------|----------|-------------|
 | GET | `/` | Web test page with upload form |
 | GET | `/health` | Health check |
-| POST | `/merge` | Upload files, returns processed file |
-| POST | `/merge/json` | Upload files, returns JSON with download URL |
+| POST | `/merge` | Upload files, returns processed file. Accepts optional `month` form parameter to trigger sales report workflow. |
+| POST | `/merge/json` | Upload files, returns JSON with download URL. Accepts optional `month` form parameter. |
 | GET | `/download/<file>` | Download result file |
 
 ```bash
@@ -171,10 +175,11 @@ curl -X POST http://localhost:5000/merge \
   -F "payment_file=@payments.xlsx" \
   --output result.xlsx
 
-# JSON mode
+# JSON mode with sales report workflow
 curl -X POST http://localhost:5000/merge/json \
   -F "order_file=@orders.xlsx" \
-  -F "payment_file=@payments.csv"
+  -F "payment_file=@payments.csv" \
+  -F "month=202603"
 ```
 
 ## Matching Logic
@@ -213,6 +218,30 @@ excel-merge/
 ├── openspec/               # OpenSpec configuration
 ├── ExcelForHandel/         # Input data directory
 └── dist/                   # Distribution copy of scripts
+```
+
+## Testing
+
+Install development dependencies and run the test suite:
+
+```bash
+pip install -r requirements-dev.txt
+python -m pytest
+```
+
+Test layout:
+
+- `tests/unit/` — unit tests for `utils.py` core logic (matching, sales-report marking, date-window filtering, file reading).
+- `tests/integration/` — integration tests for the CLI (`subprocess`) and the Flask API (test client).
+- `tests/conftest.py` — shared fixtures (`sample_data_dir`) that build deterministic Excel/CSV inputs in a temp directory.
+
+Useful options:
+
+```bash
+python -m pytest -v                       # verbose
+python -m pytest tests/unit                # unit only
+python -m pytest tests/integration         # integration only
+python -m pytest -k "sales_report"         # filter by name
 ```
 
 ## Documentation

@@ -130,12 +130,12 @@ QWEN.md
 *.xls
 *.csv
 
-# Ad-hoc scripts (no real tests)
-test_*.py
-debug_*.py
-check_*.py
-verify_*.py
-create_sample_*.py
+# Ad-hoc scripts at repo root (no real tests). Real pytest suites live in tests/.
+/test_*.py
+/debug_*.py
+/check_*.py
+/verify_*.py
+/create_sample_*.py
 
 # Data directories
 ExcelForHandel/

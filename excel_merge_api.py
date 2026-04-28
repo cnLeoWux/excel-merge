@@ -12,7 +12,7 @@ from pathlib import Path
 from datetime import datetime
 from flask import Flask, request, send_file, jsonify, render_template_string
 from werkzeug.utils import secure_filename
-from utils import process_excel_files, write_result_file
+from utils import process_excel_files, write_result_file, process_sales_report_workflow
 
 app = Flask(__name__)
 
@@ -114,7 +114,6 @@ def merge_files():
         - Or JSON error message
     """
     try:
-        # Check if files are present
         if 'order_file' not in request.files:
             return jsonify({'error': 'Missing order_file'}), 400
         
@@ -123,30 +122,23 @@ def merge_files():
         
         order_file = request.files['order_file']
         payment_file = request.files['payment_file']
+        month = request.form.get('month', None)
         
-        # Validate files
         if order_file.filename == '':
             return jsonify({'error': 'No order file selected'}), 400
         
         if payment_file.filename == '':
             return jsonify({'error': 'No payment file selected'}), 400
         
-        # Check file extensions
         if not allowed_file(order_file.filename):
-            return jsonify({
-                'error': f'Invalid order file type. Allowed: {", ".join(ALLOWED_EXTENSIONS)}'
-            }), 400
+            return jsonify({'error': f'Invalid order file type. Allowed: {", ".join(ALLOWED_EXTENSIONS)}'}), 400
         
         if not allowed_file(payment_file.filename):
-            return jsonify({
-                'error': f'Invalid payment file type. Allowed: {", ".join(ALLOWED_EXTENSIONS)}'
-            }), 400
+            return jsonify({'error': f'Invalid payment file type. Allowed: {", ".join(ALLOWED_EXTENSIONS)}'}), 400
         
-        # Generate unique session ID
         session_id = str(uuid.uuid4())[:8]
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         
-        # Save uploaded files
         order_filename = secure_filename(f"{session_id}_order_{order_file.filename}")
         payment_filename = secure_filename(f"{session_id}_payment_{payment_file.filename}")
         
@@ -157,29 +149,40 @@ def merge_files():
         payment_file.save(payment_path)
         
         print(f"[{session_id}] Files saved: {order_path}, {payment_path}")
+        print(f"[{session_id}] Starting process... Month: {month}")
         
-        # Process files
-        print(f"[{session_id}] Starting merge process...")
-        result_df = process_excel_files(str(order_path), str(payment_path), verbose=False)
-        
-        # Determine output filename
-        original_ext = Path(order_file.filename).suffix
-        result_filename = f"merged_result_{timestamp}_{session_id}{original_ext}"
-        result_path = RESULT_FOLDER / result_filename
-        
-        # Save result
-        write_result_file(result_df, result_path)
+        if month:
+            updated_order_df, report_df = process_sales_report_workflow(
+                order_file=str(order_path),
+                payment_file=str(payment_path),
+                target_month=month,
+                output_dir=RESULT_FOLDER,
+                verbose=False
+            )
+
+            if report_df.empty:
+                return jsonify({'error': 'Report generation produced no data'}), 500
+
+            report_filename = f"report_{month}_{session_id}.xlsx"
+            result_path = RESULT_FOLDER / report_filename
+            write_result_file(report_df, result_path)
+            download_name = f"report_{month}.xlsx"
+        else:
+            result_df = process_excel_files(str(order_path), str(payment_path), verbose=False)
+            
+            original_ext = Path(order_file.filename).suffix
+            result_filename = f"merged_result_{timestamp}_{session_id}{original_ext}"
+            result_path = RESULT_FOLDER / result_filename
+            
+            write_result_file(result_df, result_path)
+            download_name = f"merged_{order_file.filename}"
+            
         print(f"[{session_id}] Result saved: {result_path}")
         
-        # Clean up uploaded files (optional - comment out to keep them)
-        # order_path.unlink()
-        # payment_path.unlink()
-        
-        # Return the result file
         return send_file(
             result_path,
             as_attachment=True,
-            download_name=f"merged_{order_file.filename}",
+            download_name=download_name,
             mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
         )
         
@@ -205,15 +208,14 @@ def merge_files_json():
         
         order_file = request.files['order_file']
         payment_file = request.files['payment_file']
+        month = request.form.get('month', None)
         
         if order_file.filename == '' or payment_file.filename == '':
             return jsonify({'error': 'Empty filename'}), 400
         
-        # Generate unique session ID
         session_id = str(uuid.uuid4())[:8]
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        
-        # Save files
+
         order_filename = secure_filename(f"{session_id}_order_{order_file.filename}")
         payment_filename = secure_filename(f"{session_id}_payment_{payment_file.filename}")
         
@@ -222,35 +224,69 @@ def merge_files_json():
         
         order_file.save(order_path)
         payment_file.save(payment_path)
-        
-        # Process
-        result_df = process_excel_files(str(order_path), str(payment_path), verbose=False)
-        
-        # Save result
-        original_ext = Path(order_file.filename).suffix
-        result_filename = f"merged_result_{timestamp}_{session_id}{original_ext}"
-        result_path = RESULT_FOLDER / result_filename
-        write_result_file(result_df, result_path)
-        
-        # Get statistics
-        total_rows = len(result_df)
-        matched_rows = result_df['支付手续费'].notna().sum()
-        
-        return jsonify({
-            'success': True,
-            'session_id': session_id,
-            'download_url': f'/download/{result_filename}',
-            'statistics': {
-                'total_rows': int(total_rows),
-                'matched_rows': int(matched_rows),
-                'match_rate': f"{matched_rows/total_rows*100:.1f}%" if total_rows > 0 else "0%"
-            },
-            'files': {
-                'order': order_file.filename,
-                'payment': payment_file.filename,
-                'result': result_filename
-            }
-        })
+
+        if month:
+            updated_order_df, report_df = process_sales_report_workflow(
+                order_file=str(order_path),
+                payment_file=str(payment_path),
+                target_month=month,
+                output_dir=RESULT_FOLDER,
+                verbose=False
+            )
+
+            if report_df.empty:
+                return jsonify({'error': 'Report generation produced no data'}), 500
+
+            report_filename = f"report_{month}_{session_id}.xlsx"
+            result_path = RESULT_FOLDER / report_filename
+            write_result_file(report_df, result_path)
+            
+            total_rows = len(updated_order_df)
+            matched_rows = updated_order_df['支付手续费'].notna().sum()
+            report_rows = len(report_df)
+
+            return jsonify({
+                'success': True,
+                'session_id': session_id,
+                'download_url': f'/download/{report_filename}',
+                'statistics': {
+                    'total_rows': int(total_rows),
+                    'matched_rows': int(matched_rows),
+                    'match_rate': f"{matched_rows/total_rows*100:.1f}%" if total_rows > 0 else "0%",
+                    'report_rows': report_rows
+                },
+                'files': {
+                    'order': order_file.filename,
+                    'payment': payment_file.filename,
+                    'result': report_filename
+                }
+            })
+        else:
+            result_df = process_excel_files(str(order_path), str(payment_path), verbose=False)
+            
+            original_ext = Path(order_file.filename).suffix
+            result_filename = f"merged_result_{timestamp}_{session_id}{original_ext}"
+            result_path = RESULT_FOLDER / result_filename
+            write_result_file(result_df, result_path)
+            
+            total_rows = len(result_df)
+            matched_rows = result_df['支付手续费'].notna().sum()
+            
+            return jsonify({
+                'success': True,
+                'session_id': session_id,
+                'download_url': f'/download/{result_filename}',
+                'statistics': {
+                    'total_rows': int(total_rows),
+                    'matched_rows': int(matched_rows),
+                    'match_rate': f"{matched_rows/total_rows*100:.1f}%" if total_rows > 0 else "0%"
+                },
+                'files': {
+                    'order': order_file.filename,
+                    'payment': payment_file.filename,
+                    'result': result_filename
+                }
+            })
         
     except Exception as e:
         return jsonify({

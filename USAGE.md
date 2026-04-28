@@ -16,7 +16,11 @@ python excel_merge.py
 excel-merge
 ```
 
-按提示选择 `ExcelForHandel/` 目录下的文件进行交互式处理。
+按提示选择 `ExcelForHandel/` 目录下的文件进行交互式处理。程序会引导您：
+1.  选择订单文件和支付流水文件。
+2.  询问是否要生成销售报表。
+3.  如果选择是，将要求输入报表月份（格式 YYYYMM）和报表输出目录。
+4.  最后，将要求输入最终结果文件的路径（如果留空，则直接修改原订单文件）。
 
 ---
 
@@ -121,8 +125,8 @@ python excel_merge_api.py
 |------|------|------|
 | GET | `/` | Web 测试页面 |
 | GET | `/health` | 健康检查 |
-| POST | `/merge` | 上传文件，直接返回处理后的文件 |
-| POST | `/merge/json` | 上传文件，返回 JSON（含下载链接） |
+| POST | `/merge` | 上传文件，直接返回处理后的文件。可附加 `month` 参数触发销售报表工作流。 |
+| POST | `/merge/json` | 上传文件，返回 JSON（含下载链接）。可附加 `month` 参数触发销售报表工作流。 |
 | GET | `/download/<filename>` | 下载结果文件 |
 
 #### 3. 调用示例
@@ -139,10 +143,31 @@ curl -X POST http://localhost:5000/merge \
 ```bash
 curl -X POST http://localhost:5000/merge/json \
   -F "order_file=@orders.xlsx" \
-  -F "payment_file=@payments.xlsx"
+  -F "payment_file=@payments.xlsx" \
+  -F "month=202603"
 ```
 
-返回示例：
+返回示例（销售报表工作流）：
+```json
+{
+  "success": true,
+  "session_id": "3f5cd8ee",
+  "download_url": "/download/report_202603_3f5cd8ee.xlsx",
+  "statistics": {
+    "total_rows": 263,
+    "matched_rows": 263,
+    "match_rate": "100.0%",
+    "report_rows": 65
+  },
+  "files": {
+    "order": "202603订单数据.xlsx",
+    "payment": "20887014487155550156_202603_账务明细_1.csv",
+    "result": "report_202603_3f5cd8ee.xlsx"
+  }
+}
+```
+
+返回示例（标准模式）：
 ```json
 {
   "success": true,
