@@ -19,7 +19,7 @@ Excel Merge Tool — matches order Excel/CSV files with payment/refund files to 
 ├── requirements.txt        # Runtime deps: pandas, openpyxl, xlrd, flask, werkzeug
 ├── ExcelForHandel/         # Input data directory (26 sample/test files)
 ├── documents/              # ARCHITECTURE.md, TECHNICAL_DOCS.md, USAGE_EXAMPLES.md
-├── openspec/               # OpenSpec config (config.yaml, project.md, empty changes/specs)
+├── openspec/               # OpenSpec config + 7 capability specs (cli-input, cli-output, core-matching, file-io, sales-report, http-api, agent-documentation)
 ├── dist/                   # Distribution copy of root scripts (not a build artifact)
 ├── test_*.py               # 4 ad-hoc test scripts in root (no assertions, not real pytest)
 ├── check_csv.py            # CSV debug helper
@@ -124,9 +124,22 @@ Use `--json` to get structured output. The envelope always has three top-level f
 }
 ```
 
-When `--month` is used, `data` also includes `"report_file"` (string or null) and `"report_rows"` (int).
+When `--month` is used, `data` also includes `"report_file"` (string or null), `"report_rows"` (int), and `"warnings"` (list of strings or null).
 
-**Error** (exit code 3 or 4):
+**Partial Success** (exit code 0):
+```json
+{
+  "ok": true,
+  "data": {
+    "output_file": "result.xlsx",
+    "statistics": { ... },
+    "report_file": "report_202602.xlsx",
+    "report_rows": 50,
+    "warnings": ["无法保存更新后的订单文件 'result.xlsx': [Errno 13] Permission denied"]
+  },
+  "error": null
+}
+```
 ```json
 {
   "ok": false,
@@ -210,6 +223,7 @@ else:
 | Technical docs | documents/TECHNICAL_DOCS.md | Implementation details |
 | Usage examples | documents/USAGE_EXAMPLES.md | Practical examples |
 | OpenSpec config | openspec/config.yaml, openspec/project.md | Schema: spec-driven |
+| OpenSpec capability specs | openspec/specs/{cli-input,cli-output,core-matching,file-io,sales-report,http-api,agent-documentation}/spec.md | Source of truth for behavior contracts. Run `openspec validate --all --strict` after changes. |
 
 ## CODE MAP
 

@@ -221,3 +221,28 @@ excel-merge/
 - [documents/ARCHITECTURE.md](documents/ARCHITECTURE.md) — System architecture
 - [documents/TECHNICAL_DOCS.md](documents/TECHNICAL_DOCS.md) — Technical implementation details
 - [documents/USAGE_EXAMPLES.md](documents/USAGE_EXAMPLES.md) — Detailed usage examples with sample data
+
+## Specifications (OpenSpec)
+
+This project uses [OpenSpec](https://github.com/Fission-AI/OpenSpec) for spec-driven development. All capability contracts (CLI, matching, file I/O, sales report, HTTP API, agent documentation) live in `openspec/specs/`. Use these specs as the source of truth when changing behavior.
+
+- `openspec/project.md` — Project context, conventions, and constraints
+- `openspec/specs/cli-input/` — Non-interactive CLI invocation contract
+- `openspec/specs/cli-output/` — JSON envelope, exit codes, stdout/stderr separation
+- `openspec/specs/core-matching/` — Multi-tier matching algorithm and business type validation
+- `openspec/specs/file-io/` — Encoding fallback, Excel engine detection, order-number string protection
+- `openspec/specs/sales-report/` — Two-phase sales report workflow (`--month`)
+- `openspec/specs/http-api/` — Flask endpoints, upload/download contracts
+- `openspec/specs/agent-documentation/` — AGENTS.md content requirements
+
+```bash
+# List specs and changes
+openspec list --specs
+openspec list
+
+# Validate all specs
+openspec validate --all --strict
+
+# View a specific spec
+openspec show cli-output
+```

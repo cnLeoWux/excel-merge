@@ -51,10 +51,19 @@ def output_result(data=None, error=None, json_mode=False):
         # Text mode
         if error:
             print(f"Error: {error['message']}")
-        elif data:
+        
+        if data:
             if "output_file" in data:
                 print(f"Result saved to: {data['output_file']}")
-            elif "message" in data:
+            
+            if "report_file" in data and data["report_file"]:
+                print(f"Report saved to: {data['report_file']}")
+            
+            if "warnings" in data and data["warnings"]:
+                for warning in data["warnings"]:
+                    print(f"Warning: {warning}")
+            
+            if "message" in data:
                 print(data["message"])
 
 
@@ -177,19 +186,8 @@ def main_cli():
                 verbose=verbose,
             )
 
-            # 保存更新后的原文件
-            if args.output:
-                output_path = Path(args.output)
-                write_result_file(updated_df, output_path)
-                if not args.json and not args.quiet:
-                    print(f"\n更新后的文件已保存到: {args.output}")
-            else:
-                original_file_path = Path(args.order_file)
-                write_result_file(updated_df, original_file_path)
-                if not args.json and not args.quiet:
-                    print(f"\n原始文件已更新: {args.order_file}")
+            warnings = []
 
-            # 报告生成的报表
             report_file = None
             if len(report_df) > 0:
                 report_filename = f"report_{args.month}.xlsx"
@@ -201,6 +199,25 @@ def main_cli():
                 if not args.json and not args.quiet:
                     print(f"\n没有符合条件的数据生成报表")
 
+            output_path_str = str(args.output or args.order_file)
+            try:
+                if args.output:
+                    output_path = Path(args.output)
+                    write_result_file(updated_df, output_path)
+                    if not args.json and not args.quiet:
+                        print(f"\n更新后的文件已保存到: {args.output}")
+                else:
+                    original_file_path = Path(args.order_file)
+                    write_result_file(updated_df, original_file_path)
+                    if not args.json and not args.quiet:
+                        print(f"\n原始文件已更新: {args.order_file}")
+            except Exception as e:
+                warn_msg = f"无法保存更新后的订单文件 '{output_path_str}': {str(e)}"
+                warnings.append(warn_msg)
+                if not args.json and not args.quiet:
+                    print(f"\n警告: {warn_msg}")
+                    print("月度报表已尝试生成，但原始订单文件未被更新。")
+
             # Calculate statistics
             total_rows = len(updated_df)
             matched_rows = updated_df["支付手续费"].notna().sum()
@@ -208,7 +225,7 @@ def main_cli():
 
             output_result(
                 data={
-                    "output_file": str(args.output or args.order_file),
+                    "output_file": output_path_str,
                     "statistics": {
                         "total_rows": total_rows,
                         "matched_rows": int(matched_rows),
@@ -216,6 +233,7 @@ def main_cli():
                     },
                     "report_file": report_file,
                     "report_rows": len(report_df) if len(report_df) > 0 else 0,
+                    "warnings": warnings if warnings else None,
                 },
                 json_mode=args.json,
             )
