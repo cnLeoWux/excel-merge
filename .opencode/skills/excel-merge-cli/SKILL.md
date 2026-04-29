@@ -1,58 +1,96 @@
 ---
 name: excel-merge-cli
-description: Run the excel-merge CLI to match order files with payment/refund files; optionally trigger the sales-report workflow that marks the 销售报表账期 column. All results are written in place to the order file - the CLI never produces any separate output or report file.
+description: Run the excel-merge CLI to match order files with payment/refund files; optionally trigger the sales-report workflow. Optimized for Feishu workflow - accepts two uploaded files and sends the processed result back to the chat.
 license: MIT
 metadata:
   author: excel-merge
-  version: "2.2"
+  version: "3.0"
 ---
 
-# Excel Merge CLI Skill
+# Excel Merge CLI Skill (Feishu Optimized)
 
-Use this skill when the user wants to invoke the project's CLI (`cli.py` / `excel-merge-cli`) to:
+Use this skill when the user wants to merge Excel/CSV files in Feishu:
 
-1. Match an **order file** with a **payment/refund file** and fill in the `支付手续费` column.
-2. Optionally run the **sales report workflow** (`--month YYYYMM`) which marks 全退/已取消 rows and back-fills `销售报表YYYYMM` into the 销售报表账期 column for rows whose 出行日期 falls in a 1-year window of the target month.
-3. Produce **machine-readable JSON output** for automation/agent integration.
+1. **Two files uploaded** → Match order file with payment/refund file, fill in `支付手续费` column
+2. **With --month flag** → Also run sales report workflow, marking `销售报表账期` column
+3. **Send result back** → Upload the processed file to the Feishu chat
 
-> **In-place contract**: Every successful invocation writes back to the original order file. The CLI does not produce any separate result file or `report_YYYYMM.xlsx`. If the user wants "save as" behavior, they must copy the order file *before* running the CLI.
-
-This skill is for *invoking* the CLI, not for modifying its source. For source changes, follow the OpenSpec workflow on the `cli-input` / `cli-output` / `sales-report` capabilities.
-
-> **Implementation note**: this skill reflects `cli.py` as of the `remove-output-file-option` change (archived 2026-04-29). If `cli.py` ever re-introduces output flags or report files, update this skill before using it.
+> **In-place contract**: The CLI writes results back to the original order file. For Feishu workflow, we create a temporary copy to preserve the original, then send the processed copy to chat.
 
 ---
 
 ## When to Use
 
-Trigger this skill when the user says things like:
-- "用 CLI 合并这两个文件"
-- "Run excel-merge on order.xlsx and payment.xlsx"
-- "标注 202602 的销售报表账期" / "Mark the 销售报表账期 column for 202602"
-- "Match payment fees from the command line"
-- "Give me JSON output from excel-merge"
+Trigger this skill when:
+- User uploads 2 Excel/CSV files to Feishu chat
+- User says "合并这两个文件" / "匹配订单和支付"
+- User mentions "销售报表" / "标注账期"
+- Files are in `ExcelForHandel/` folder
 
-> **Note on `--month`**: this flag triggers the *sales-report workflow*, which **only marks the 销售报表账期 column inside the order file**. It does **not** generate any `report_YYYYMM.xlsx` or other separate report file. If the user asks for a "sales report file" or "月报文件", clarify the contract before running — the only artifact is the in-place updated order file.
-
-Do **not** use this skill for:
-- Interactive mode (`python excel_merge.py`) — that's a TTY file picker.
-- HTTP API usage (`excel_merge_api.py`) — different entry point that *does* still produce a downloadable monthly report internally.
-- Editing the matching algorithm — that's a code change, not a CLI invocation.
+**Typical Feishu workflow:**
+1. User uploads `order.xlsx` (订单文件)
+2. User uploads `payment.xlsx` (支付/退款文件)
+3. You download both files
+4. Run `excel-merge-cli` on them
+5. Send the processed `order.xlsx` back to chat
 
 ---
 
-## Prerequisites Checklist
+## Feishu Workflow Steps
 
-Before running, verify:
+### Step 1: Receive Files
+When user uploads files to Feishu:
+- Files are automatically saved to `/tmp/openclaw/` with unique names
+- File info includes `file_key` for downloading
 
-1. **Working directory** is the project root (where `cli.py` lives).
-2. **Dependencies installed**: `pip install -r requirements.txt`. For the `excel-merge-cli` console script, also `pip install -e .`.
-3. **Input files exist at the exact path you pass**. The CLI checks `Path(args.order_file).exists()` and `Path(args.payment_file).exists()` directly — it does **not** auto-search `ExcelForHandel/` for bare filenames. If the file lives in `ExcelForHandel/`, pass the full relative path: `python cli.py ExcelForHandel/order.xlsx ExcelForHandel/payment.xlsx`. Use `ls ExcelForHandel/` to confirm.
-4. **File formats** are `.xlsx`, `.xls`, or `.csv`. CSV encoding is auto-detected (gbk → utf-8 → gb2312 → latin-1 → utf-8-sig).
-5. **Required columns** exist in the order file: `订单号`, `外部订单号`, `订单金额` (and `商品名称` for P-number/hyphen matching). The payment file needs a `商户`+`订单` column, an amount column (`支出金额（-元）` or `收入金额（+元）`), and a business-type column.
-6. **Backup, if needed**: Because the CLI overwrites the order file in place, if the user has not made a copy and might want one, recommend `cp order.xlsx order.bak.xlsx` *before* invocation.
+### Step 2: Download Files
+Use `feishu_im_bot_image` to download uploaded files:
+```python
+# For each uploaded file
+feishu_im_bot_image(
+    message_id=message_id,
+    file_key=file_key,
+    type="file"  # or "image" for screenshots
+)
+```
 
-If a prerequisite is missing or ambiguous, ask the user before running.
+### Step 3: Identify File Types
+
+**Order file** (订单文件) typically contains:
+- `订单号` column
+- `外部订单号` column
+- `订单金额` column
+- `商品名称` column (for P-number matching)
+
+**Payment file** (支付/退款文件) typically contains:
+- `商户订单号` or `商户`+`订单` columns
+- `支出金额（-元）` or `收入金额（+元）` column
+- Business type column (`收费`/`服务费`/`退费`/`退款`)
+
+> **Auto-detection**: If unsure which is which, check column names. Order file has `订单号`, payment file has `商户订单号`.
+
+### Step 4: Run CLI
+
+```bash
+# Basic match
+python cli.py /path/to/order.xlsx /path/to/payment.xlsx --json --quiet
+
+# With sales report workflow
+python cli.py /path/to/order.xlsx /path/to/payment.xlsx --month 202602 --json --quiet
+```
+
+### Step 5: Send Result Back
+
+Use `feishu_im_user_message` to send the processed file:
+```python
+feishu_im_user_message(
+    action="send",
+    msg_type="file",
+    content=json.dumps({"file_key": uploaded_file_key}),
+    receive_id_type="chat_id",
+    receive_id=chat_id
+)
+```
 
 ---
 
@@ -60,104 +98,43 @@ If a prerequisite is missing or ambiguous, ask the user before running.
 
 | Argument | Required | Default | Purpose |
 |---|---|---|---|
-| `order_file` | yes | — | Order data file (positional #1). Will be overwritten in place. |
-| `payment_file` | yes | — | Payment/refund file (positional #2). |
-| `--month YYYYMM` | no | `None` | Trigger sales report workflow (e.g. `202602`). Marks 销售报表账期 column in the order file; produces no separate report file. |
-| `--json` | no | `False` | Emit JSON envelope on stdout. |
-| `--quiet` | no | `False` | Sets the logger to WARNING (suppresses INFO progress); warnings & errors still go to stderr. Does **not** suppress the final stdout summary line. |
-| `-v` / `-vv` | no | INFO (default level) | `-v` keeps INFO; `-vv` enables DEBUG. Logging stream is **stderr** (`logging.basicConfig(stream=sys.stderr)`). |
-
-> **Removed flags**: `-o`/`--output` and `--output-dir` no longer exist. Passing them causes argparse to exit with code 2 and an "unrecognized arguments" message on stderr.
-
-**stdout vs stderr**:
-- **stderr**: `logging` output (anything routed through the logger), argparse usage errors, the optional traceback in text-mode failures.
-- **stdout**: in `--json` mode, exactly the JSON envelope. In text mode, `cli.py` uses plain `print()` for a small set of progress lines (`Processing files:`, `Order file:`, `Payment/Refund file:`, and — when `--month` is used — `执行销售报表工作流...` / `目标月份:`), plus the final "订单文件已就地更新: <path>" summary. The progress lines are suppressed by `--quiet`. The final summary (text mode) or JSON envelope (`--json` mode) is always printed on success regardless of `--quiet`, since `output_result` runs unconditionally.
-
-> ⚠ **Caveat for piping**: in text mode without `--json`, stdout is **not** clean machine-readable output — it interleaves progress lines with the summary. For automation, always use `--json --quiet` so stdout becomes a single JSON object.
-
----
-
-## Decision Tree
-
-```
-Does the user want a monthly sales report?
-├── yes → add --month YYYYMM
-└── no  → just positional args
-
-Is this for an automation/agent/script?
-├── yes → add --json --quiet
-└── no  → leave defaults (human-readable text)
-
-Will the original order file be overwritten?
-├── always (this is the only mode)
-└── if user wants safety → tell them to copy the file BEFORE invoking
-```
-
-**Safety nudge**: The CLI **always overwrites the original order file**. There is no opt-out. If you suspect the user might regret this, recommend they back up `order.xlsx` before you run the command.
+| `order_file` | yes | — | Order data file path |
+| `payment_file` | yes | — | Payment/refund file path |
+| `--month YYYYMM` | no | `None` | Trigger sales report workflow |
+| `--json` | no | `False` | Emit JSON output (recommended for automation) |
+| `--quiet` | no | `False` | Suppress progress logs |
 
 ---
 
 ## Canonical Invocations
 
-### 1. Basic match (in-place, the only mode)
+### Basic Match (Feishu workflow)
 ```bash
-python cli.py order.xlsx payment.xlsx
-```
-Result: `order.xlsx` updated with 支付手续费 column.
+# Create temp copy to preserve original
+cp /tmp/openclaw/order.xlsx /tmp/openclaw/order_processed.xlsx
 
-### 2. Sales report workflow
-```bash
-python cli.py order.xlsx payment.xlsx --month 202602
-```
-Result: `order.xlsx` updated with both 支付手续费 and 销售报表账期 columns. **No** `report_*.xlsx` is produced anywhere.
+# Run CLI
+python cli.py /tmp/openclaw/order_processed.xlsx /tmp/openclaw/payment.xlsx --json --quiet
 
-### 3. Agent/automation mode (JSON, no log noise)
-```bash
-python cli.py order.xlsx payment.xlsx --json --quiet
+# Result is in order_processed.xlsx, ready to send back
 ```
 
-### 4. Agent mode with sales report
+### Sales Report Workflow
 ```bash
-python cli.py order.xlsx payment.xlsx --month 202602 --json --quiet
+cp /tmp/openclaw/order.xlsx /tmp/openclaw/order_processed.xlsx
+python cli.py /tmp/openclaw/order_processed.xlsx /tmp/openclaw/payment.xlsx --month 202602 --json --quiet
 ```
-
-### 5. Console-script form (after `pip install -e .`)
-```bash
-excel-merge-cli order.xlsx payment.xlsx
-```
-
-### 6. Safe "save as" pattern (manual, since `-o` is gone)
-```bash
-cp order.xlsx order_result.xlsx
-python cli.py order_result.xlsx payment.xlsx
-```
-
----
-
-## Exit Codes & Error Handling
-
-| Code | Meaning | What to do |
-|---|---|---|
-| 0 | Success | Parse stdout if `--json`, else read text |
-| 1 | General/unknown error | Re-run with `-vv` to capture traceback on stderr |
-| 2 | Usage error (argparse) | Run `python cli.py --help`. **Includes** passing the removed `-o`/`--output`/`--output-dir` |
-| 3 | File not found | Verify path; check `ExcelForHandel/`; fix typo |
-| 4 | Processing error | Confirm columns/format; CSV encoding; **also** raised when the order file cannot be overwritten (locked/read-only) |
-
-When invoked from automation, **always check the exit code first**, then parse JSON.
 
 ---
 
 ## JSON Output Shape
-
-Always three top-level keys: `ok`, `data`, `error` (one of `data` / `error` is non-null). The shape of `data` is **identical regardless of whether `--month` is passed**.
 
 **Success:**
 ```json
 {
   "ok": true,
   "data": {
-    "output_file": "order.xlsx",
+    "output_file": "/tmp/openclaw/order_processed.xlsx",
     "statistics": {
       "total_rows": 100,
       "matched_rows": 85,
@@ -168,68 +145,161 @@ Always three top-level keys: `ok`, `data`, `error` (one of `data` / `error` is n
 }
 ```
 
-`output_file` is always equal to the order file path. The `data` object **never** contains `report_file`, `report_rows`, or `warnings`.
-
 **Failure:**
 ```json
 {
   "ok": false,
   "data": null,
-  "error": { "code": "file_not_found", "message": "File 'x.xlsx' does not exist." }
+  "error": {
+    "code": "file_not_found",
+    "message": "File 'x.xlsx' does not exist."
+  }
 }
 ```
 
-Possible `error.code` values emitted by `cli.py` today: `file_not_found`, `processing_error`. (`output_result` also has a defensive `unknown_error` fallback for callers that omit `code`, but no current code path triggers it.)
+---
+
+## Feishu-Specific Implementation
+
+### Complete Workflow Example
+
+```python
+import json
+from pathlib import Path
+
+# 1. Files are uploaded to Feishu, get their paths
+order_path = "/tmp/openclaw/order_xxx.xlsx"
+payment_path = "/tmp/openclaw/payment_xxx.xlsx"
+
+# 2. Create processed copy
+import shutil
+processed_path = "/tmp/openclaw/order_processed.xlsx"
+shutil.copy(order_path, processed_path)
+
+# 3. Run CLI
+import subprocess
+result = subprocess.run(
+    [
+        "python", "cli.py",
+        processed_path,
+        payment_path,
+        "--json", "--quiet"
+    ],
+    capture_output=True,
+    text=True,
+    cwd="/path/to/excel-merge"
+)
+
+# 4. Parse result
+output = json.loads(result.stdout)
+if output["ok"]:
+    stats = output["data"]["statistics"]
+    print(f"✅ 匹配成功: {stats['matched_rows']}/{stats['total_rows']} ({stats['match_rate']})")
+    
+    # 5. Upload processed file back to Feishu
+    # (Use feishu_drive_file upload to get file_key, then send message)
+else:
+    print(f"❌ 错误: {output['error']['message']}")
+```
+
+### Sending File Back to Feishu Chat
+
+```python
+# Upload file to Feishu to get file_key
+feishu_drive_file(
+    action="upload",
+    file_path="/tmp/openclaw/order_processed.xlsx",
+    folder_token="your_folder_token"  # Optional
+)
+
+# Send file message
+feishu_im_user_message(
+    action="send",
+    msg_type="file",
+    content=json.dumps({"file_key": file_key}),
+    receive_id_type="chat_id",
+    receive_id="oc_xxx"  # Group chat ID
+)
+```
 
 ---
 
-## Recommended Workflow for the Agent
+## Exit Codes & Error Handling
 
-1. **Confirm intent**: basic match vs. sales report. Confirm the user is OK with the order file being overwritten (or recommend a manual copy first).
-2. **Locate inputs**: the CLI does **not** auto-search `ExcelForHandel/`. If the user gave bare filenames, check both cwd and `ExcelForHandel/` with Glob/Bash `ls`, then pass the resolved relative path (e.g. `ExcelForHandel/order.xlsx`) to the CLI.
-3. **Build the command** following the decision tree.
-4. **Run via Bash tool**, capturing stdout/stderr.
-5. **Inspect**:
-   - exit code first
-   - if `--json`: parse stdout, report `match_rate` and `matched_rows` from `data.statistics`
-   - else: surface the "订单文件已就地更新" line printed to stdout
-6. **On non-zero exit**: re-run with `-vv` (without `--quiet`) to capture detailed stderr, then report the error.
-7. **Always remind the user** that the order file was modified in place.
+| Code | Meaning | Feishu Response |
+|---|---|---|
+| 0 | Success | Send processed file + stats |
+| 1 | General error | Reply with error message |
+| 2 | Usage error | Check command syntax |
+| 3 | File not found | Ask user to re-upload |
+| 4 | Processing error | Check file format/columns |
 
 ---
 
-## Common Pitfalls
+## Common Pitfalls (Feishu Context)
 
-- **20-char truncation**: exact match compares the first 20 chars of `订单号` with `商户订单号`. Truncated/short order numbers may fail to match — that's expected behavior, not a bug.
-- **P-number regex is case-sensitive** (`r"P\d+"`). Lowercase `p` won't match.
-- **Amount columns use full-width parens**: `支出金额（-元）` and `收入金额（+元）`. Don't substitute half-width `()`.
-- **Business-type gating**: regular orders (`订单金额 > 0`) only match `收费`/`服务费`; refunds (`< 0`) only match `退费`/`退款`. Mismatches are skipped silently.
-- **CSV with `#` comments**: lines starting with `#` are skipped; first non-comment line is the header.
-- **Order file locked in Excel**: writing back will fail with exit code 4 / `processing_error`. Tell the user to close the file in Excel before re-running.
-- **No safety net for in-place writes**: passing `-o` / `--output` / `--output-dir` exits with code 2 (argparse "unrecognized arguments") — they must copy the file manually for "save as".
-- **Text-mode stdout is not pure**: progress lines and the final summary share stdout (see Argument Reference). Use `--json --quiet` whenever stdout will be parsed.
-- **`--quiet` does not silence the summary**: the final "订单文件已就地更新: <path>" line is printed via `print()`, not the logger, so it always appears on success. Redirect stdout if you need true silence.
+- **File locked**: If user has order file open in Excel, writing will fail. Ask them to close it first.
+- **Wrong file order**: First arg must be order file, second is payment file. Auto-detect by column names if unsure.
+- **CSV encoding**: Auto-detected (gbk → utf-8 → gb2312 → latin-1 → utf-8-sig)
+- **20-char truncation**: Order numbers are matched by first 20 chars only
+- **P-number case-sensitive**: Must be uppercase `P\d+`, lowercase won't match
 
 ---
 
-## Quick Reference Card
+## Quick Reference
 
 ```bash
 # Help
 python cli.py --help
 
-# Basic match (in-place)
-python cli.py ORDER PAYMENT
+# Basic match (Feishu optimized)
+cp order.xlsx order_processed.xlsx
+python cli.py order_processed.xlsx payment.xlsx --json --quiet
 
-# Sales report (in-place; no report file produced)
-python cli.py ORDER PAYMENT --month YYYYMM
+# Sales report
+cp order.xlsx order_processed.xlsx
+python cli.py order_processed.xlsx payment.xlsx --month 202602 --json --quiet
+```
 
-# Agent/automation
-python cli.py ORDER PAYMENT --json --quiet
+---
 
-# Save-as workaround
-cp ORDER ORDER_COPY && python cli.py ORDER_COPY PAYMENT
+## Feishu Message Templates
 
-# Debug a failure
-python cli.py ORDER PAYMENT -vv
+**Success response:**
+```
+✅ Excel 合并完成！
+
+📊 匹配统计：
+   • 总订单数：{total_rows}
+   • 成功匹配：{matched_rows}
+   • 匹配率：{match_rate}
+
+📎 已处理文件已上传
+```
+
+**With sales report:**
+```
+✅ Excel 合并 + 销售报表标注完成！
+
+📊 匹配统计：
+   • 总订单数：{total_rows}
+   • 成功匹配：{matched_rows}
+   • 匹配率：{match_rate}
+
+📝 销售报表：
+   • 目标月份：{month}
+   • 已标注账期信息
+
+📎 已处理文件已上传
+```
+
+**Error response:**
+```
+❌ 处理失败：{error_message}
+
+请检查：
+   • 文件格式是否正确 (.xlsx/.xls/.csv)
+   • 订单文件是否包含"订单号"列
+   • 支付文件是否包含"商户订单号"列
+   • 文件是否被其他程序占用
 ```
