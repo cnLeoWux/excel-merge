@@ -753,38 +753,32 @@ def get_year_month(date_val: Any) -> Optional[str]:
 def filter_unmarked_and_generate_report(
     order_df: pd.DataFrame,
     target_month: str,
-    output_dir: Optional[str] = None,
     verbose: bool = False,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """
-    第二阶段功能：筛选未标记数据并生成新文档
+    第二阶段功能：筛选未标记数据并在订单 DataFrame 上回填账期标记。
+
+    本工作流不写出任何文件；返回的 DataFrame 仅供调用方决定如何持久化。
 
     流程：
     1. 过滤掉已标记的数据（"销售报表账期"列不为空的行）
     2. 筛选出"出发日期"指定月份（例如2026年2月）的数据
     3. 往前查一年（例如2026年2月往前查一年是2025年2月到2026年2月）
     4. 从所有未标记的数据中，找出"出发日期"在这一年内范围的所有数据
-    5. 生成一个新的Excel文档，包含这些筛选出的数据
+    5. 将筛选出的行作为内存中的"月报 DataFrame"返回（不落盘）
     6. 同时，将被复制的原Excel表格中这些被复制的数据行，
-       在"销售报表账期"列填上"销售报表202602"
+       在"销售报表账期"列填上"销售报表YYYYMM"
 
     Args:
         order_df: 订单数据DataFrame（已执行第一阶段标记）
         target_month: 目标月份，格式为 YYYYMM（如 "202602"）
-        output_dir: 输出目录路径，默认为当前目录
         verbose: 是否打印详细日志
 
     Returns:
-        tuple: (更新后的原DataFrame, 新生成的DataFrame)
+        tuple: (更新后的原DataFrame, 筛选得到的月报DataFrame; 均为内存对象)
     """
     # 复制DataFrame避免修改原数据
     df = order_df.copy()
-
-    # 默认输出目录
-    if output_dir is None:
-        output_dir = "."
-
-    output_path = Path(output_dir)
 
     if verbose:
         logger.info("\n" + "=" * 60)
@@ -856,21 +850,15 @@ def filter_unmarked_and_generate_report(
     if verbose:
         logger.info(f"  符合条件的数据行数: {len(filtered_df)}")
 
-    # 步骤5: 生成新的Excel文档
+    # 步骤5: 收集筛选结果为内存中的月报 DataFrame（不落盘）
     new_report_df = pd.DataFrame()
     if len(filtered_df) > 0:
-        # 生成文件名: report_YYYYMM.xlsx
-        report_filename = f"report_{target_month}.xlsx"
-        report_path = output_path / report_filename
-
-        # 保存新文档
-        filtered_df.to_excel(report_path, index=False, engine="openpyxl")
+        new_report_df = filtered_df.copy()
 
         if verbose:
-            logger.info(f"\n步骤5: 生成新Excel文档")
-            logger.info(f"  已保存到: {report_path}")
-
-        new_report_df = filtered_df.copy()
+            logger.info(f"\n步骤5: 收集月报 DataFrame")
+            logger.info(f"  行数: {len(new_report_df)}")
+            logger.info(f"  注意: 工作流不写出报表文件；如需持久化请由调用方处理")
 
     # 步骤6: 在原Excel中标记被复制的数据行
     if len(filtered_df) > 0:
@@ -896,26 +884,28 @@ def process_sales_report_workflow(
     order_file: str,
     payment_file: str,
     target_month: str,
-    output_dir: Optional[str] = None,
     verbose: bool = False,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """
-    完整的销售报表工作流：处理两个文件并生成销售报表
+    完整的销售报表工作流：处理两个文件并计算月报 DataFrame。
+
+    本工作流不写出任何文件；返回的 DataFrame 仅供调用方决定如何持久化
+    （CLI 与交互模式仅就地写回订单文件，不产生独立报表；HTTP API 自行
+    决定是否将月报 DataFrame 落盘以服务下载）。
 
     流程：
     1. 读取并处理订单文件和支付文件（匹配支付手续费）
     2. 执行第一阶段：添加"销售报表账期"标记（全退、已取消）
-    3. 执行第二阶段：筛选未标记数据并生成新文档
+    3. 执行第二阶段：筛选未标记数据并回填账期标记（不落盘）
 
     Args:
         order_file: 订单文件路径
         payment_file: 支付文件路径
         target_month: 目标月份（格式 YYYYMM）
-        output_dir: 输出目录路径
         verbose: 是否打印详细日志
 
     Returns:
-        tuple: (更新后的订单DataFrame, 新生成的报表DataFrame)
+        tuple: (更新后的订单DataFrame, 月报DataFrame; 均为内存对象)
     """
     if verbose:
         logger.info("=" * 60)
@@ -928,9 +918,9 @@ def process_sales_report_workflow(
     # 步骤1: 处理订单文件和支付文件
     result_df = process_excel_files(order_file, payment_file, verbose=verbose)
 
-    # 步骤2 & 3: 第二阶段处理
+    # 步骤2 & 3: 第二阶段处理（不落盘）
     updated_df, report_df = filter_unmarked_and_generate_report(
-        result_df, target_month, output_dir=output_dir, verbose=verbose
+        result_df, target_month, verbose=verbose
     )
 
     return updated_df, report_df

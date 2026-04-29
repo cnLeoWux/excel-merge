@@ -81,31 +81,35 @@ def test_add_sales_report_period_marking(sample_data_dir):
 def test_filter_unmarked_and_generate_report(sample_data_dir, tmp_path):
     """
     Task 2.4: Test the filtering logic for the monthly sales report.
-    Ensures only relevant, unmarked rows within the date window are included.
+    Ensures only relevant, unmarked rows within the date window are included,
+    and that the function does NOT write any files to disk (in-place contract).
     """
     order_df = read_file_with_appropriate_method(sample_data_dir / "orders.xlsx")
-    
+
     # Pre-mark the dataframe to simulate a real workflow
     marked_df = add_sales_report_period(order_df.copy(), verbose=False)
 
-    updated_df, report_df_generated = filter_unmarked_and_generate_report(
+    # Snapshot tmp_path; the function MUST NOT write into it (no output_dir param).
+    snapshot_before = {p for p in tmp_path.rglob("*") if p.is_file()}
+
+    # Function signature must NOT accept output_dir
+    import inspect
+
+    sig = inspect.signature(filter_unmarked_and_generate_report)
+    assert "output_dir" not in sig.parameters
+
+    updated_df, report_df = filter_unmarked_and_generate_report(
         order_df=marked_df,
         target_month="202603",
-        output_dir=str(tmp_path),
-        verbose=False
+        verbose=False,
     )
-    
-    # After filtering, a report file should be generated in the temp directory
-    report_files = list(tmp_path.glob("report_*.xlsx"))
-    assert len(report_files) > 0, "Report file was not generated"
-    report_path = report_files[0]
-    
-    report_df = pd.read_excel(report_path)
 
-    # Only one row should be in the report: DATE_FILTER_THIS_MONTH
-    # DATE_FILTER_LAST_YEAR is outside the month but inside the 1-year window
-    # DATE_FILTER_OUT_OF_RANGE is outside the 1-year window
-    # FULL_REFUND_ORDER and CANCELLED_ORDER are marked and should be excluded
+    # No file artefacts should appear anywhere under tmp_path
+    snapshot_after = {p for p in tmp_path.rglob("*") if p.is_file()}
+    assert snapshot_before == snapshot_after
+    assert not list(tmp_path.rglob("report_*.xlsx"))
+
+    # Returned report DataFrame is the in-memory equivalent of the old file
     expected_rows = 2
     assert report_df.shape[0] == expected_rows
 
@@ -117,7 +121,34 @@ def test_filter_unmarked_and_generate_report(sample_data_dir, tmp_path):
     assert "CANCELLED_ORDER_222" not in included_orders
 
     # Check that the updated_df has the correct markings
-    mark_value = f"销售报表202603"
+    mark_value = "销售报表202603"
     assert updated_df.loc[updated_df['订单号'] == 'DATE_FILTER_THIS_MONTH', '销售报表账期'].iloc[0] == mark_value
     assert updated_df.loc[updated_df['订单号'] == 'DATE_FILTER_LAST_YEAR', '销售报表账期'].iloc[0] == mark_value
     assert pd.isna(updated_df.loc[updated_df['订单号'] == 'DATE_FILTER_OUT_OF_RANGE', '销售报表账期'].iloc[0])
+
+
+def test_process_sales_report_workflow_signature_and_no_files(sample_data_dir, tmp_path):
+    """`process_sales_report_workflow` must not accept output_dir and must not write files."""
+    import inspect
+    from utils import process_sales_report_workflow
+
+    sig = inspect.signature(process_sales_report_workflow)
+    assert "output_dir" not in sig.parameters
+
+    order_path = sample_data_dir / "orders.xlsx"
+    payment_path = sample_data_dir / "payments.csv"
+
+    snapshot_before = {p for p in tmp_path.rglob("*") if p.is_file()}
+
+    updated_df, report_df = process_sales_report_workflow(
+        order_file=str(order_path),
+        payment_file=str(payment_path),
+        target_month="202603",
+        verbose=False,
+    )
+
+    snapshot_after = {p for p in tmp_path.rglob("*") if p.is_file()}
+    assert snapshot_before == snapshot_after
+    # Updated order DataFrame and in-memory report DataFrame are returned
+    assert "支付手续费" in updated_df.columns
+    assert isinstance(report_df, pd.DataFrame)

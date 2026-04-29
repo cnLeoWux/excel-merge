@@ -1,8 +1,4 @@
-## Purpose
-
-CLI 输出能力 - 定义命令行工具的结构化输出、退出码、日志控制等行为规范，支持 AI Agent 和自动化脚本集成。
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: JSON 结构化输出
 
@@ -41,30 +37,6 @@ CLI 在指定 `--json` 标志时 SHALL 将所有结果以 JSON 格式输出到 s
 - **AND** `data` 不包含 `report_file`、`report_rows`、`warnings` 字段
 - **AND** `output_file` 等于订单文件路径（账期标记已就地写回）
 
-### Requirement: 语义化退出码
-
-CLI MUST 在所有退出路径上使用语义化退出码，以便调用方（AI Agent 或脚本）根据退出码判断错误类型。
-
-#### Scenario: 成功退出
-- **WHEN** CLI 处理完成且无错误
-- **THEN** 进程退出码为 0
-
-#### Scenario: 参数错误退出
-- **WHEN** CLI 接收到无效参数（如缺少必需的位置参数）
-- **THEN** 进程退出码为 2（argparse 默认行为）
-
-#### Scenario: 文件未找到退出
-- **WHEN** 指定的输入文件不存在
-- **THEN** 进程退出码为 3
-
-#### Scenario: 处理错误退出
-- **WHEN** 文件读取或匹配过程中发生异常
-- **THEN** 进程退出码为 4
-
-#### Scenario: 通用错误退出
-- **WHEN** 发生未预期的异常
-- **THEN** 进程退出码为 1
-
 ### Requirement: stdout/stderr 分离
 
 CLI MUST 将数据输出和日志输出分离：数据（JSON 或最终结果路径）输出到 stdout，日志/进度/警告输出到 stderr。文本模式下，stdout 上仅出现"订单文件就地更新"类的最终摘要，不得出现独立的"Result saved to:"或"Report saved to:"提示，因为不再产生独立的结果文件或月报文件。
@@ -87,20 +59,10 @@ CLI MUST 将数据输出和日志输出分离：数据（JSON 或最终结果路
 - **AND** stdout 不出现指向 `report_*.xlsx` 的路径
 - **AND** 当前工作目录与任何其它目录均不存在新生成的 `report_*.xlsx` 文件
 
-### Requirement: 日志级别控制
+## REMOVED Requirements
 
-CLI MUST 支持 `--quiet` 和 `--verbose` 标志以控制日志详细程度。
+### Requirement: 工作流 JSON 输出扩展
 
-#### Scenario: 静默模式
-- **WHEN** 用户执行 `python cli.py order.xlsx payment.xlsx --quiet`
-- **THEN** stderr 上不输出进度日志（仅输出警告和错误）
-- **AND** 处理结果正常输出到 stdout
+**Reason**: 销售报表工作流不再产出独立报表文件，所有结果（含 `销售报表账期` 列）就地写回订单文件，因此 JSON 信封不再需要 `report_file` / `report_rows` 等月报相关字段。"部分成功 + warnings" 路径同时被取消：写订单文件失败一律以 `processing_error`（退出码 4）失败。
 
-#### Scenario: 详细模式
-- **WHEN** 用户执行 `python cli.py order.xlsx payment.xlsx --verbose`
-- **THEN** stderr 上输出详细的匹配过程日志（包括每行的匹配尝试）
-
-#### Scenario: 默认模式（无标志）
-- **WHEN** 用户执行 `python cli.py order.xlsx payment.xlsx`（不带 `--quiet` 或 `--verbose`）
-- **THEN** 行为与当前版本一致（输出处理进度摘要）
-- **AND** 向后兼容
+**Migration**: 调用方不再读取 `data.report_file`、`data.report_rows`、`data.warnings`。若历史代码依赖这些字段，应改为：(1) 检查 `ok` 与退出码判断成功；(2) 通过 `data.statistics.matched_rows` 评估匹配规模；(3) 写入失败现在直接以非零退出码 + `error.code == "processing_error"` 暴露，不再有"成功但有 warning"的中间态。

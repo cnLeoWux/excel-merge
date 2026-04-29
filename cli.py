@@ -26,9 +26,13 @@ EXIT_PROCESSING_ERROR = 4
 def output_result(data=None, error=None, json_mode=False):
     """
     Output result in JSON or text format.
-    
-    JSON mode: outputs envelope to stdout
-    Text mode: prints human-readable message to stdout
+
+    JSON mode: outputs envelope (`{ok, data, error}`) to stdout.
+    Text mode: prints a short human-readable summary.
+
+    The CLI guarantees that all merge / sales-report results are written
+    in place to the original order file. There is no separate "result file"
+    or "report file" — `data["output_file"]` always equals the order file path.
     """
     if json_mode:
         if error:
@@ -50,57 +54,63 @@ def output_result(data=None, error=None, json_mode=False):
     else:
         # Text mode
         if error:
-            print(f"Error: {error['message']}")
-        
+            print(f"错误: {error['message']}")
+
         if data:
             if "output_file" in data:
-                print(f"Result saved to: {data['output_file']}")
-            
-            if "report_file" in data and data["report_file"]:
-                print(f"Report saved to: {data['report_file']}")
-            
-            if "warnings" in data and data["warnings"]:
-                for warning in data["warnings"]:
-                    print(f"Warning: {warning}")
-            
+                print(f"订单文件已就地更新: {data['output_file']}")
+
             if "message" in data:
                 print(data["message"])
+
+
+def _build_success_payload(order_file: str, result_df: pd.DataFrame) -> dict:
+    """Construct the JSON `data` payload for a successful run.
+
+    Shape is identical for the basic match path and the sales-report path:
+    `output_file` always equals the order file (results are in-place),
+    plus a `statistics` block.
+    """
+    total_rows = len(result_df)
+    matched_rows = int(result_df["支付手续费"].notna().sum()) if "支付手续费" in result_df.columns else 0
+    match_rate = (
+        f"{(matched_rows / total_rows * 100):.2f}%" if total_rows > 0 else "0.00%"
+    )
+    return {
+        "output_file": str(order_file),
+        "statistics": {
+            "total_rows": total_rows,
+            "matched_rows": matched_rows,
+            "match_rate": match_rate,
+        },
+    }
 
 
 def main_cli():
     import argparse
 
     parser = argparse.ArgumentParser(
-        description="Merge two Excel files based on specific matching logic."
+        description=(
+            "Merge two Excel/CSV files based on payment-fee matching logic. "
+            "All results are written in place to the order file; no separate "
+            "output or report files are produced."
+        )
     )
     parser.add_argument(
-        "order_file", type=str, help="Path to the first Excel file (order data)"
+        "order_file", type=str, help="Path to the order data file (.xlsx/.xls/.csv)"
     )
     parser.add_argument(
         "payment_file",
         type=str,
-        help="Path to the second Excel file (payment/refund data)",
-    )
-    parser.add_argument(
-        "-o",
-        "--output",
-        type=str,
-        default=None,
-        help="Output filename (default: modify original file)",
+        help="Path to the payment/refund data file (.xlsx/.xls/.csv)",
     )
 
-    # 第二阶段参数：生成销售报表
+    # 销售报表工作流：仅触发账期标注，不再落盘
     parser.add_argument(
         "--month",
         type=str,
         default=None,
-        help="Target month for sales report (format: YYYYMM, e.g., 202602)",
-    )
-    parser.add_argument(
-        "--output-dir",
-        type=str,
-        default=None,
-        help="Output directory for the generated report",
+        help="Target month for sales report workflow (format: YYYYMM, e.g., 202602)",
     )
 
     # JSON output and logging control
@@ -133,7 +143,7 @@ def main_cli():
         log_level = logging.INFO
     else:
         log_level = logging.INFO  # Default level for backward compatibility
-    
+
     logging.basicConfig(
         level=log_level,
         format="%(message)s",
@@ -171,116 +181,48 @@ def main_cli():
         # Determine verbosity for utils functions
         verbose = args.verbose >= 1 and not args.quiet
 
-        # 判断是否执行第二阶段工作流
+        # 销售报表工作流（--month）与基本匹配路径共享同一种产出契约：
+        # 所有结果就地写回订单文件；不产生任何独立的结果文件或报表文件。
         if args.month:
-            # 第二阶段：完整工作流（处理 + 标记 + 生成报表）
             if not args.json and not args.quiet:
-                print(f"\n执行完整销售报表工作流...")
+                print(f"\n执行销售报表工作流...")
                 print(f"  目标月份: {args.month}")
 
-            updated_df, report_df = process_sales_report_workflow(
+            updated_df, _report_df = process_sales_report_workflow(
                 args.order_file,
                 args.payment_file,
                 args.month,
-                output_dir=args.output_dir,
                 verbose=verbose,
             )
-
-            warnings = []
-
-            report_file = None
-            if len(report_df) > 0:
-                report_filename = f"report_{args.month}.xlsx"
-                report_file = str(Path(args.output_dir or ".") / report_filename)
-                if not args.json and not args.quiet:
-                    print(f"\n新报表文件: {report_filename}")
-                    print(f"包含 {len(report_df)} 行数据")
-            else:
-                if not args.json and not args.quiet:
-                    print(f"\n没有符合条件的数据生成报表")
-
-            output_path_str = str(args.output or args.order_file)
-            try:
-                if args.output:
-                    output_path = Path(args.output)
-                    write_result_file(updated_df, output_path)
-                    if not args.json and not args.quiet:
-                        print(f"\n更新后的文件已保存到: {args.output}")
-                else:
-                    original_file_path = Path(args.order_file)
-                    write_result_file(updated_df, original_file_path)
-                    if not args.json and not args.quiet:
-                        print(f"\n原始文件已更新: {args.order_file}")
-            except Exception as e:
-                warn_msg = f"无法保存更新后的订单文件 '{output_path_str}': {str(e)}"
-                warnings.append(warn_msg)
-                if not args.json and not args.quiet:
-                    print(f"\n警告: {warn_msg}")
-                    print("月度报表已尝试生成，但原始订单文件未被更新。")
-
-            # Calculate statistics
-            total_rows = len(updated_df)
-            matched_rows = updated_df["支付手续费"].notna().sum()
-            match_rate = f"{(matched_rows / total_rows * 100):.2f}%" if total_rows > 0 else "0.00%"
-
-            output_result(
-                data={
-                    "output_file": output_path_str,
-                    "statistics": {
-                        "total_rows": total_rows,
-                        "matched_rows": int(matched_rows),
-                        "match_rate": match_rate,
-                    },
-                    "report_file": report_file,
-                    "report_rows": len(report_df) if len(report_df) > 0 else 0,
-                    "warnings": warnings if warnings else None,
-                },
-                json_mode=args.json,
-            )
+            result_df = updated_df
         else:
-            # 原有逻辑：只处理匹配，不执行第二阶段
+            # 仅匹配支付手续费
             result_df = process_excel_files(
                 args.order_file, args.payment_file, verbose=verbose
             )
 
-            # If output is specified, save to that file; otherwise modify the original order file
-            if args.output:
-                output_path = Path(args.output)
-                write_result_file(result_df, output_path)
-                if not args.json:
-                    output_result(
-                        data={"output_file": str(args.output)},
-                        json_mode=args.json,
-                    )
-            else:
-                # Modify the original order file
-                original_file_path = Path(args.order_file)
-                write_result_file(result_df, original_file_path)
-                if not args.json:
-                    output_result(
-                        data={"output_file": str(args.order_file)},
-                        json_mode=args.json,
-                    )
+        # 统一就地写回订单文件；任何写入异常 → processing_error
+        try:
+            write_result_file(result_df, Path(args.order_file))
+        except Exception as e:
+            output_result(
+                error={
+                    "code": "processing_error",
+                    "message": f"无法写回订单文件 '{args.order_file}': {e}",
+                },
+                json_mode=args.json,
+            )
+            sys.exit(EXIT_PROCESSING_ERROR)
 
-            # Calculate statistics for JSON output
-            if args.json:
-                total_rows = len(result_df)
-                matched_rows = result_df["支付手续费"].notna().sum()
-                match_rate = f"{(matched_rows / total_rows * 100):.2f}%" if total_rows > 0 else "0.00%"
-                output_result(
-                    data={
-                        "output_file": str(args.output or args.order_file),
-                        "statistics": {
-                            "total_rows": total_rows,
-                            "matched_rows": int(matched_rows),
-                            "match_rate": match_rate,
-                        },
-                    },
-                    json_mode=args.json,
-                )
+        output_result(
+            data=_build_success_payload(args.order_file, result_df),
+            json_mode=args.json,
+        )
 
         sys.exit(EXIT_SUCCESS)
 
+    except SystemExit:
+        raise
     except Exception as e:
         output_result(
             error={

@@ -139,15 +139,15 @@ re.search(r"P\d+", text_str)
 2. 状态包含"取消"且订单金额为0 → 标记为"已取消"
 3. 金额不为0 → 不处理
 
-### Phase 2: filter_unmarked_and_generate_report() (L743-884)
+### Phase 2: filter_unmarked_and_generate_report() (L743+)
 
 **筛选逻辑**：
 1. 过滤掉"销售报表账期"列已有值的行
 2. 解析"出行日期"列
 3. 计算时间窗口：目标月份往前推1年（如 `202602` → `2025-02-01` 至 `2026-02-28`）
 4. 筛选出行日期在窗口内的行
-5. 在原数据中标记为"销售报表YYYYMM"
-6. 将筛选出的行写入 `report_YYYYMM.xlsx`
+5. 在原 DataFrame 中将这些行的"销售报表账期"列回填为"销售报表YYYYMM"
+6. 返回 `(updated_df, report_df)` 元组，**不**再写入 `report_YYYYMM.xlsx` 文件；调用方（`cli.py` / `excel_merge_api.py`）负责持久化
 
 ### Orchestration: process_sales_report_workflow() (L887-928)
 

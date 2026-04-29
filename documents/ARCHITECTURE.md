@@ -17,7 +17,7 @@ Excel Merge Tool 是一个订单数据与支付流水自动匹配工具。核心
 | 入口 | 文件 | 说明 | 控制台命令 |
 |------|------|------|-----------|
 | 交互式 | `excel_merge.py` | 从 `ExcelForHandel/` 列出文件供用户选择 | `excel-merge` |
-| CLI | `cli.py` | argparse 参数模式，支持 `-o`、`--month`、`--output-dir` | `excel-merge-cli` |
+| CLI | `cli.py` | argparse 参数模式，支持 `--month`；结果就地写回订单文件 | `excel-merge-cli` |
 | Flask API | `excel_merge_api.py` | HTTP 服务，支持文件上传和下载 | 无（直接运行） |
 | 控制台脚本 | `setup.py` | 通过 `pip install -e .` 注册的 entry_points | — |
 
@@ -86,11 +86,12 @@ process_sales_report_workflow()
     │       ├── 重复订单号金额合计=0 → "全退"
     │       └── 状态含"取消"且金额=0 → "已取消"
     │
-    └──→ filter_unmarked_and_generate_report()  ← 步骤3: 生成月度报表
+    └──→ filter_unmarked_and_generate_report()  ← 步骤3: 内存中筛选并标记
             ├── 过滤已标记行
             ├── 筛选出行日期在目标月份前1年范围内的数据
-            ├── 标记为"销售报表YYYYMM"
-            └── 输出 report_YYYYMM.xlsx
+            ├── 在原 DataFrame 中将这些行标记为"销售报表YYYYMM"
+            └── 返回 (updated_df, report_df)，由调用方就地写回订单文件
+                （不生成独立的 report_YYYYMM.xlsx 文件）
 ```
 
 ---
@@ -163,4 +164,4 @@ gbk → utf-8 → gb2312 → latin-1 → utf-8-sig
 - **类型转换**：`astype(str)` 会将 NaN 转为字面量 `"nan"`
 - **日志**：导入了 `logging` 模块但实际使用 `print` 输出
 - **API**：`/merge` 固定返回 XLSX mimetype，不论实际文件格式
-- **默认覆盖**：不指定 `-o` 时直接修改原文件
+- **就地覆盖**：CLI 始终覆盖原订单文件（已无 `-o`/`--output-dir`），调用前需自行备份

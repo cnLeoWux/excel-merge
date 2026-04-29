@@ -109,7 +109,8 @@ The Flask API endpoints `/merge` and `/merge/json` MUST support triggering the s
 #### Scenario: Trigger sales report via /merge/json
 - **WHEN** a client sends a `POST` request to `/merge/json` with valid `order_file`, `payment_file`, and a `month` form parameter (e.g., "202602")
 - **THEN** the `process_sales_report_workflow` SHALL be executed.
-- **AND** the JSON response `data` field MUST include `report_file` and `report_rows` keys, consistent with the CLI's JSON output for the sales report workflow.
+- **AND** the API layer SHALL persist the filtered report DataFrame to a downloadable file under `results/` (the workflow function itself does not write files).
+- **AND** the JSON response MUST include a `download_url` pointing to that file and a `statistics.report_rows` integer count. (This is the API's own response shape and is independent from the CLI JSON envelope, which since the `remove-output-file-option` change no longer carries `report_file`/`report_rows`.)
 
 #### Scenario: Trigger sales report via /merge
 - **WHEN** a client sends a `POST` request to `/merge` with valid `order_file`, `payment_file`, and a `month` form parameter.

@@ -1,30 +1,4 @@
-## Purpose
-
-销售报表能力 - 定义两阶段销售报表工作流：阶段一标注销售报表账期（全退/已取消），阶段二筛选未标注行并按出行日期窗口生成月度报表。该能力由 `utils.py` 中的 `add_sales_report_period()`、`filter_unmarked_and_generate_report()` 与 `process_sales_report_workflow()` 实现，通过 CLI `--month YYYYMM` 触发。
-
-## Requirements
-
-### Requirement: 销售报表账期标注
-
-`add_sales_report_period()` MUST 写入 `销售报表账期` 列，根据订单状态标注"全退"或"已取消"，未匹配规则的行保持空值。
-
-#### Scenario: 全退标注
-- **WHEN** 同一 `订单号` 在数据集中出现多次
-- **AND** 这些行的 `订单金额` 之和为 0
-- **THEN** 这些行的 `销售报表账期` 列值为 `"全退"`
-
-#### Scenario: 已取消标注
-- **WHEN** 订单行的状态字段（如 `订单状态`）字符串包含 `"取消"` 子串
-- **AND** 该行 `订单金额` 为 0
-- **THEN** 该行 `销售报表账期` 列值为 `"已取消"`
-
-#### Scenario: 全退优先于已取消
-- **WHEN** 一行同时满足全退（重复订单号金额合计 0）和已取消（状态含"取消"且金额 0）条件
-- **THEN** 标注为 `"全退"`（标注按写入顺序生效）
-
-#### Scenario: 普通订单无标注
-- **WHEN** 订单行不满足全退或已取消条件
-- **THEN** `销售报表账期` 列保持空值（NaN 或空字符串）
+## MODIFIED Requirements
 
 ### Requirement: 月度报表筛选
 
@@ -92,3 +66,11 @@
 - **WHEN** `出行日期` 列包含 `2026-02-15`、`2026/02/15`、`2026年2月15日` 等不同格式
 - **THEN** `parse_date()` 正确解析为 `pd.Timestamp`
 - **AND** 用于窗口筛选
+
+## REMOVED Requirements
+
+### Requirement: 工作流 JSON 输出扩展
+
+**Reason**: 此能力的 JSON 输出契约由 `cli-output` capability 统一管理；本次变更后 CLI JSON 输出不再含报表相关字段，`sales-report` capability 不应再单独定义 JSON 扩展字段。该需求的删除避免与 `cli-output` 的新约束冲突。
+
+**Migration**: 见 `cli-output` capability 的 REMOVED 段：调用方不再依赖 `data.report_file` / `data.report_rows`；改为通过退出码与 `data.statistics` 评估处理结果。

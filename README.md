@@ -55,15 +55,14 @@ Lists files in `ExcelForHandel/` for interactive selection. The script will guid
 
 ### CLI Mode
 
+> **Breaking change**: `-o`/`--output` and `--output-dir` have been removed. All results are written **in place** to the original order file, including the sales-report workflow (no separate `report_YYYYMM.xlsx` is produced anywhere). To get a "save as" effect, copy the order file before invoking the CLI (e.g. `cp order.xlsx order_copy.xlsx && python cli.py order_copy.xlsx payment.xlsx`). The HTTP API contract is unchanged.
+
 ```bash
-# Basic: modify original file in-place
+# Basic: match payment fees and write back to order.xlsx in place
 python cli.py order.xlsx payment.xlsx
 
-# Specify output file
-python cli.py order.xlsx payment.xlsx -o result.xlsx
-
-# Sales report workflow
-python cli.py order.xlsx payment.xlsx --month 202602 --output-dir ./reports
+# Sales report workflow (also writes back in place; no report file is produced)
+python cli.py order.xlsx payment.xlsx --month 202602
 
 # JSON output (for AI Agent integration)
 python cli.py order.xlsx payment.xlsx --json
@@ -75,16 +74,14 @@ python cli.py order.xlsx payment.xlsx --quiet
 python cli.py order.xlsx payment.xlsx -v
 
 # Console script
-excel-merge-cli order.xlsx payment.xlsx -o result.xlsx
+excel-merge-cli order.xlsx payment.xlsx
 ```
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `order_file` | str | *(required)* | Path to the order data file (.xlsx, .xls, .csv) |
+| `order_file` | str | *(required)* | Path to the order data file (.xlsx, .xls, .csv); will be overwritten in place |
 | `payment_file` | str | *(required)* | Path to the payment/refund data file (.xlsx, .xls, .csv) |
-| `-o`, `--output` | str | `None` (overwrite original) | Output file path; if omitted, the original order file is modified in-place |
-| `--month` | str | `None` | Target month in `YYYYMM` format (e.g., `202602`); triggers the sales report workflow |
-| `--output-dir` | str | `None` (current dir) | Output directory for the generated monthly report |
+| `--month` | str | `None` | Target month in `YYYYMM` format (e.g., `202602`); triggers the sales report workflow. Marks the 销售报表账期 column in the order file in place; produces no separate report file. |
 | `--json` | flag | `False` | Output result as JSON envelope to stdout |
 | `--quiet` | flag | `False` | Suppress progress logs; only warnings and errors go to stderr |
 | `-v`, `--verbose` | count | `0` | Increase verbosity: `-v` = INFO, `-vv` = DEBUG |
@@ -106,7 +103,7 @@ echo $?  # 0=success, 3=file not found, 4=processing error
 ```
 
 **stdout/stderr separation**:
-- **stdout**: JSON result only (when `--json`) or result file path (text mode)
+- **stdout**: JSON envelope (with `--json`) or a single "订单文件已就地更新" summary line (text mode)
 - **stderr**: all logs, progress messages, warnings, and errors
 
 #### Exit Codes
@@ -115,18 +112,20 @@ echo $?  # 0=success, 3=file not found, 4=processing error
 |------|----------|---------|-----------------|
 | 0 | `EXIT_SUCCESS` | Success | Processing completed normally |
 | 1 | `EXIT_GENERAL_ERROR` | General Error | Unexpected/unhandled exception |
-| 2 | `EXIT_USAGE_ERROR` | Usage Error | Invalid or missing arguments (argparse) |
+| 2 | `EXIT_USAGE_ERROR` | Usage Error | Invalid or missing arguments (argparse). Includes passing the removed flags `-o`/`--output` or `--output-dir`. |
 | 3 | `EXIT_FILE_NOT_FOUND` | File Not Found | Input file does not exist |
-| 4 | `EXIT_PROCESSING_ERROR` | Processing Error | Error during matching or file writing |
+| 4 | `EXIT_PROCESSING_ERROR` | Processing Error | Error during matching, parsing, or in-place write of the order file |
 
 #### JSON Output Format
+
+The envelope always has three top-level fields: `ok`, `data`, `error`. The shape of `data` is **identical regardless of whether `--month` is passed**.
 
 Success response:
 ```json
 {
   "ok": true,
   "data": {
-    "output_file": "result.xlsx",
+    "output_file": "order.xlsx",
     "statistics": {
       "total_rows": 100,
       "matched_rows": 85,
@@ -136,6 +135,8 @@ Success response:
   "error": null
 }
 ```
+
+`output_file` is always equal to the order file path. The `data` object never contains `report_file`, `report_rows`, or `warnings`.
 
 Error response:
 ```json
@@ -148,8 +149,6 @@ Error response:
   }
 }
 ```
-
-When `--month` is used, `data` also includes `"report_file"` (string or null) and `"report_rows"` (int).
 
 Possible `error.code` values: `file_not_found`, `processing_error`, `unknown_error`.
 
@@ -192,12 +191,12 @@ curl -X POST http://localhost:5000/merge/json \
 
 ## Sales Report Workflow
 
-Triggered by `--month YYYYMM`:
+Triggered by `--month YYYYMM`. All writes go back to the order file in place; **no separate `report_YYYYMM.xlsx` is produced.**
 
-1. Match payment fees (same as basic mode)
+1. Match payment fees (same as basic mode) and write 支付手续费 back to the order file
 2. Mark 销售报表账期 column: "全退" (duplicate orders summing to zero), "已取消" (cancelled status with zero amount)
-3. Filter unmarked rows with 出行日期 within 1-year window of target month
-4. Generate `report_YYYYMM.xlsx`
+3. In memory, compute the unmarked rows whose 出行日期 falls in a 1-year window of the target month
+4. Back-fill `销售报表YYYYMM` into the 销售报表账期 column for those rows in the order file
 
 ## Project Structure
 

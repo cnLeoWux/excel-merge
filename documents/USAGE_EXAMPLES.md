@@ -1,5 +1,7 @@
 # Excel Merge Tool - Usage Examples
 
+> **⚠ 破坏性变更（迁移说明）**：CLI 已移除 `-o`/`--output` 与 `--output-dir` 参数；销售报表工作流不再产出独立的 `report_YYYYMM.xlsx` 文件。所有合并与销售报表标记结果**一律就地写回订单文件**。如果需要"另存为"效果，请先复制订单文件再调用 CLI（例如 `cp order.xlsx order_copy.xlsx && python cli.py order_copy.xlsx payment.xlsx`）。HTTP API（`excel_merge_api.py`）的对外契约不受此影响，仍可下载月报文件。
+
 ## Installation
 
 ```bash
@@ -41,40 +43,31 @@ Select the second Excel file (payment/refund data) by number: 2
 
 ## CLI Mode (命令行)
 
+> CLI 只暴露一种产出渠道：**就地修改订单文件**。不会生成任何独立的结果文件或月度报表文件。如需备份，请在调用前自行复制订单文件。
+
 ### 基本用法
 
 ```bash
-# 直接修改原订单文件
+# 就地匹配支付手续费并写回 order.xlsx
 python cli.py order.xlsx payment.xlsx
 
 # 或安装后：
 excel-merge-cli order.xlsx payment.xlsx
 ```
 
-### 指定输出文件
-
-```bash
-python cli.py order.xlsx payment.xlsx -o result.xlsx
-```
-
 ### 销售报表工作流
 
 ```bash
-# 完整工作流：匹配 + 标记 + 生成月度报表
+# 触发完整工作流：匹配 + 标注 + 在内存中筛选 + 就地回填 销售报表账期 列
 python cli.py order.xlsx payment.xlsx --month 202602
-
-# 指定报表输出目录
-python cli.py order.xlsx payment.xlsx --month 202602 --output-dir ./reports
-
-# 同时指定输出文件和报表目录
-python cli.py order.xlsx payment.xlsx -o updated_order.xlsx --month 202602 --output-dir ./reports
 ```
 
 `--month` 触发完整销售报表工作流：
 1. 匹配支付手续费
 2. 标记"全退"和"已取消"订单
-3. 筛选出行日期在目标月份前1年范围内的未标记数据
-4. 生成 `report_YYYYMM.xlsx`
+3. 在内存中筛选出行日期在目标月份前后 1 年范围内的未标记数据
+4. 将 `销售报表YYYYMM` 回填到这些行的 `销售报表账期` 列，并就地写回订单文件
+5. **不**生成任何 `report_YYYYMM.xlsx` 文件
 
 ### CLI 参数一览
 
@@ -82,12 +75,12 @@ python cli.py order.xlsx payment.xlsx -o updated_order.xlsx --month 202602 --out
 |------|------|--------|------|------|
 | `order_file` | str | *(必填)* | 订单数据文件路径（.xlsx, .xls, .csv） | 是 |
 | `payment_file` | str | *(必填)* | 支付流水文件路径（.xlsx, .xls, .csv） | 是 |
-| `-o`, `--output` | str | `None`（覆盖原文件） | 输出文件路径；省略则原地修改订单文件 | 否 |
 | `--month` | str | `None` | 目标月份 `YYYYMM` 格式（如 `202602`），触发销售报表工作流 | 否 |
-| `--output-dir` | str | `None`（当前目录） | 月度报表输出目录 | 否 |
 | `--json` | flag | `False` | 以 JSON 信封格式输出结果到 stdout | 否 |
 | `--quiet` | flag | `False` | 静默模式，仅输出警告和错误到 stderr | 否 |
 | `-v`, `--verbose` | count | `0` | 详细日志模式（-v=INFO, -vv=DEBUG） | 否 |
+
+> 已移除：`-o`/`--output`、`--output-dir`。传入这些参数会被 argparse 拒绝并以退出码 2 退出。
 
 ---
 
@@ -116,7 +109,7 @@ python cli.py order.xlsx payment.xlsx --json --quiet
 }
 ```
 
-当使用 `--month` 时，`data` 中还会包含 `"report_file"`（字符串或 null）和 `"report_rows"`（整数）。
+无论是否传入 `--month`，`data` 的形状始终一致，仅含 `output_file`（等于订单文件路径）与 `statistics`，**不**包含 `report_file` / `report_rows` / `warnings` 字段。
 
 ### Error Handling
 

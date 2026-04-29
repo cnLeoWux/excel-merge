@@ -29,9 +29,10 @@ The test suite MUST provide comprehensive coverage for core logic, entry points,
 #### Scenario: CLI functional tests
 - **WHEN** running the test suite
 - **THEN** there MUST be tests for `cli.py` that execute the script as a subprocess and verify:
-  - Basic matching with `-o` writes the correct output file.
-  - The sales report workflow (`--month`) generates both the updated order file and the monthly report.
-  - The `--json` output is a valid JSON with the expected structure.
+  - Basic matching writes the result back in place to the order file (no separate output file is produced).
+  - The sales report workflow (`--month`) writes 销售报表 markings back in place to the order file and produces no `report_*.xlsx` artefact.
+  - Passing the removed flags `-o`/`--output`/`--output-dir` yields exit code 2.
+  - The `--json` output is a valid JSON with the expected structure (`data` containing only `output_file` and `statistics`).
   - Invalid arguments cause a non-zero exit code.
 
 #### Scenario: API integration tests

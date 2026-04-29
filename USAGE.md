@@ -19,28 +19,24 @@ excel-merge
 按提示选择 `ExcelForHandel/` 目录下的文件进行交互式处理。程序会引导您：
 1.  选择订单文件和支付流水文件。
 2.  询问是否要生成销售报表。
-3.  如果选择是，将要求输入报表月份（格式 YYYYMM）和报表输出目录。
-4.  最后，将要求输入最终结果文件的路径（如果留空，则直接修改原订单文件）。
+3.  如果选择是，将要求输入报表月份（格式 YYYYMM）。
+4.  最终结果会**就地写回原订单文件**（销售报表标记会写入"销售报表账期"列），不再生成单独的报表文件。
 
 ---
 
 ### 方式二：命令行参数模式（推荐批量处理）
 
+> **⚠ 破坏性变更**：CLI 已移除 `-o`/`--output` 与 `--output-dir`；销售报表工作流不再生成单独的 `report_YYYYMM.xlsx`。所有结果**一律就地写回订单文件**。如需"另存为"效果，请在调用前手动复制订单文件，例如 `cp orders.xlsx orders_copy.xlsx && python cli.py orders_copy.xlsx payments.xlsx`。HTTP API 对外契约不受影响。
+
 ```bash
-# 基本用法 - 直接修改原订单文件
+# 基本用法 - 就地修改订单文件
 python cli.py <订单文件> <支付流水文件>
 
-# 指定输出文件
-python cli.py orders.xlsx payments.xlsx -o result.xlsx
-
-# 销售报表工作流
+# 销售报表工作流（同样就地写回订单文件，不产生独立报表文件）
 python cli.py orders.xlsx payments.xlsx --month 202602
 
-# 销售报表 + 指定输出目录
-python cli.py orders.xlsx payments.xlsx --month 202602 --output-dir ./reports
-
 # 示例
-python cli.py ./data/orders_202403.xlsx ./data/payments_202403.xlsx -o ./output/merged.xlsx
+python cli.py ./data/orders_202403.xlsx ./data/payments_202403.xlsx
 ```
 
 **支持的格式**：`.xlsx`, `.xls`, `.csv`
@@ -49,11 +45,9 @@ python cli.py ./data/orders_202403.xlsx ./data/payments_202403.xlsx -o ./output/
 
 | 参数 | 说明 | 必填 |
 |------|------|------|
-| `order_file` | 订单数据文件路径 | 是 |
+| `order_file` | 订单数据文件路径（将被就地覆盖） | 是 |
 | `payment_file` | 支付流水文件路径 | 是 |
-| `-o`, `--output` | 输出文件路径（默认覆盖原文件） | 否 |
-| `--month` | 目标月份 YYYYMM，触发销售报表工作流 | 否 |
-| `--output-dir` | 报表输出目录 | 否 |
+| `--month` | 目标月份 YYYYMM，触发销售报表工作流；在订单文件的"销售报表账期"列就地标记，不产生独立报表文件 | 否 |
 | `--json` | 以 JSON 格式输出结果到 stdout | 否 |
 | `--quiet` | 静默模式，仅输出错误信息 | 否 |
 | `-v`, `--verbose` | 详细日志模式（-v=INFO, -vv=DEBUG） | 否 |
@@ -86,9 +80,9 @@ echo $?  # 3 表示文件不存在
 |--------|------|----------|
 | 0 | 成功 | 处理完成，结果已输出 |
 | 1 | 通用错误 | 未预期的异常 |
-| 2 | 用法错误 | 参数无效或缺失 |
+| 2 | 用法错误 | 参数无效或缺失（包括传入已移除的 `-o`/`--output`/`--output-dir`） |
 | 3 | 文件未找到 | 输入文件不存在 |
-| 4 | 处理错误 | 匹配或写入过程中出错 |
+| 4 | 处理错误 | 匹配、解析或就地写回订单文件时出错 |
 
 **非交互式模式**（适用于 excel_merge.py）：
 
@@ -213,7 +207,7 @@ pip install -e .
 excel-merge
 
 # CLI 模式
-excel-merge-cli orders.xlsx payments.xlsx -o result.xlsx
+excel-merge-cli orders.xlsx payments.xlsx
 excel-merge-cli orders.xlsx payments.xlsx --month 202602
 ```
 
@@ -225,26 +219,26 @@ excel-merge-cli orders.xlsx payments.xlsx --month 202602
 
 ## 📊 销售报表工作流
 
-通过 `--month` 参数触发完整的销售报表生成流程：
+通过 `--month` 参数触发完整的销售报表生成流程。所有结果**就地写回订单文件**，不再产生独立的 `report_YYYYMM.xlsx` 文件。
 
 ```bash
-python cli.py orders.xlsx payments.xlsx --month 202602 --output-dir ./reports
+python cli.py orders.xlsx payments.xlsx --month 202602
 ```
 
 ### 处理流程
 
-**第一阶段：匹配与标记**
+**第一阶段：匹配与标记（就地写回订单文件）**
 1. 匹配支付手续费（与基本模式相同）
 2. 在"销售报表账期"列标记特殊订单：
    - **全退**：同一订单号出现多次，金额合计为0
    - **已取消**：订单状态含"取消"且金额为0
 
-**第二阶段：筛选与生成报表**
-1. 过滤掉已标记的行（全退、已取消）
-2. 筛选"出行日期"在目标月份前1年范围内的数据
+**第二阶段：筛选与标记（仍就地写回订单文件）**
+1. 在内存中过滤掉已标记的行（全退、已取消）
+2. 在内存中筛选"出行日期"在目标月份前1年范围内的数据
    - 例如 `--month 202602` → 筛选 2025-02-01 至 2026-02-28 的出行日期
-3. 在原数据中标记为"销售报表202602"
-4. 生成新文件 `report_202602.xlsx`，包含筛选出的数据
+3. 将这些行的"销售报表账期"列回填为"销售报表202602"，并随订单文件一并就地保存
+4. **不**生成任何独立的 `report_*.xlsx` 文件
 
 ---
 
@@ -297,6 +291,6 @@ python cli.py orders.xlsx payments.xlsx --month 202602 --output-dir ./reports
 
 - 确保输入文件包含必要的列：订单号、外部订单号、订单金额、业务类型等
 - CSV 文件支持多种编码（自动检测 gbk、utf-8、gb2312、latin-1、utf-8-sig）
-- 不指定 `-o` 时默认修改原文件，建议先备份
+- CLI 默认会**就地覆盖**原订单文件，调用前请先备份；`-o`/`--output`/`--output-dir` 已移除
 - API 服务默认保存上传和处理记录，可定期清理 `uploads/` 和 `results/` 目录
 - 控制台命令需先运行 `pip install -e .` 注册

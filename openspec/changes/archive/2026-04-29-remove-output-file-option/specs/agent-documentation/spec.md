@@ -1,8 +1,4 @@
-## Purpose
-
-Agent 文档能力 - 定义 AI Agent 可读取的项目知识库（AGENTS.md）中 CLI 使用文档的内容和结构要求，确保 Agent 能够完整理解 CLI 模式的所有功能和调用规范。
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: AGENTS.md CLI 使用参考章节
 

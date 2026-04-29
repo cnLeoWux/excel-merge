@@ -12,7 +12,7 @@ Excel Merge Tool — matches order Excel/CSV files with payment/refund files to 
 ```
 ./
 ├── utils.py                # Core business logic (~930 lines): matching, reading, writing, reporting
-├── cli.py                  # CLI entry (argparse): order_file payment_file [-o] [--month] [--output-dir]
+├── cli.py                  # CLI entry (argparse): order_file payment_file [--month YYYYMM]
 ├── excel_merge.py          # Interactive entry: file picker from ExcelForHandel/
 ├── excel_merge_api.py      # Flask API: /merge, /merge/json, /download/<file>, /health
 ├── setup.py                # Package config: console_scripts excel-merge & excel-merge-cli
@@ -38,9 +38,8 @@ pip install -e .                    # Editable install (enables console_scripts)
 
 # Run application
 python excel_merge.py                                           # Interactive mode
-python cli.py order.xlsx payment.xlsx                           # CLI basic
-python cli.py order.xlsx payment.xlsx -o result.xlsx            # CLI with output
-python cli.py order.xlsx payment.xlsx --month 202602 --output-dir ./reports  # Sales report workflow
+python cli.py order.xlsx payment.xlsx                           # CLI basic match (in-place)
+python cli.py order.xlsx payment.xlsx --month 202602            # Sales report workflow (in-place)
 python excel_merge_api.py                                       # Flask API on 0.0.0.0:5000
 
 # Console scripts (after pip install -e .)
@@ -59,15 +58,15 @@ python -m pytest -k "sales_report"    # Filter by keyword
 
 ## CLI USAGE REFERENCE
 
+> **In-place contract**: All merge and sales-report results are written **in place** to the original order file. The CLI does not produce any separate result file or report file. Back up the order file before invoking if you need a copy.
+
 ### Parameters
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `order_file` | str | *(required)* | Path to the order data file (.xlsx, .xls, .csv) |
 | `payment_file` | str | *(required)* | Path to the payment/refund data file (.xlsx, .xls, .csv) |
-| `-o`, `--output` | str | `None` (overwrite original) | Output file path; if omitted, the original order file is modified in-place |
 | `--month` | str | `None` | Target month in `YYYYMM` format (e.g., `202602`); triggers the sales report workflow |
-| `--output-dir` | str | `None` (current dir) | Output directory for the generated monthly report |
 | `--json` | flag | `False` | Output result as JSON envelope to stdout |
 | `--quiet` | flag | `False` | Suppress progress logs; only warnings and errors go to stderr |
 | `-v`, `--verbose` | count | `0` | Increase verbosity: `-v` = INFO, `-vv` = DEBUG |
@@ -75,47 +74,41 @@ python -m pytest -k "sales_report"    # Filter by keyword
 ### Basic Matching Workflow
 
 ```bash
-# Modify original order file in-place (default)
+# Match payment fees and write back to order.xlsx in place
 python cli.py order.xlsx payment.xlsx
 
-# Specify output file
-python cli.py order.xlsx payment.xlsx -o result.xlsx
-
 # Console script (after pip install -e .)
-excel-merge-cli order.xlsx payment.xlsx -o result.xlsx
+excel-merge-cli order.xlsx payment.xlsx
 ```
 
 Supported file formats: `.xlsx`, `.xls`, `.csv`. Encoding is auto-detected (gbk → utf-8 → gb2312 → latin-1 → utf-8-sig).
 
 ### Sales Report Workflow (`--month`)
 
-Triggered by `--month YYYYMM`. Two-phase processing:
+Triggered by `--month YYYYMM`. Two-phase processing, all writes go to the order file:
 
-1. **Phase 1 — Match & Mark**: Run payment fee matching, then mark 销售报表账期 column:
+1. **Phase 1 — Match & Mark**: Run payment fee matching, then mark the 销售报表账期 column:
    - "全退": duplicate order numbers whose amounts sum to zero
    - "已取消": order status contains "取消" and amount is 0
-2. **Phase 2 — Filter & Generate Report**: Filter unmarked rows with 出行日期 within a 1-year window of the target month, then write `report_YYYYMM.xlsx`.
+2. **Phase 2 — Filter & Mark in place**: Compute, in memory, the rows whose 出行日期 falls in a 1-year window of the target month and that are still unmarked, then back-fill `销售报表YYYYMM` into the 销售报表账期 column for those rows. **No `report_YYYYMM.xlsx` file is produced.**
 
 ```bash
-# Full sales report workflow
-python cli.py order.xlsx payment.xlsx --month 202602 --output-dir ./reports
-
-# Also redirect the updated order file
-python cli.py order.xlsx payment.xlsx --month 202602 --output-dir ./reports -o updated_order.xlsx
+# Sales report workflow (writes back to order.xlsx in place)
+python cli.py order.xlsx payment.xlsx --month 202602
 ```
 
-Output: original order file updated (or written to `-o`) + `report_YYYYMM.xlsx` in `--output-dir` (or cwd).
+Output: `order.xlsx` updated in place with both 支付手续费 and 销售报表账期 columns populated. No separate report file.
 
 ### JSON Output Format
 
-Use `--json` to get structured output. The envelope always has three top-level fields: `ok`, `data`, `error`.
+Use `--json` to get structured output. The envelope always has three top-level fields: `ok`, `data`, `error`. The shape of `data` is the same regardless of whether `--month` is passed.
 
 **Success** (exit code 0):
 ```json
 {
   "ok": true,
   "data": {
-    "output_file": "result.xlsx",
+    "output_file": "order.xlsx",
     "statistics": {
       "total_rows": 100,
       "matched_rows": 85,
@@ -126,22 +119,9 @@ Use `--json` to get structured output. The envelope always has three top-level f
 }
 ```
 
-When `--month` is used, `data` also includes `"report_file"` (string or null), `"report_rows"` (int), and `"warnings"` (list of strings or null).
+`output_file` is always equal to the order file path. The `data` object never contains `report_file`, `report_rows`, or `warnings`.
 
-**Partial Success** (exit code 0):
-```json
-{
-  "ok": true,
-  "data": {
-    "output_file": "result.xlsx",
-    "statistics": { ... },
-    "report_file": "report_202602.xlsx",
-    "report_rows": 50,
-    "warnings": ["无法保存更新后的订单文件 'result.xlsx': [Errno 13] Permission denied"]
-  },
-  "error": null
-}
-```
+**Failure** (non-zero exit code):
 ```json
 {
   "ok": false,
@@ -161,9 +141,9 @@ Possible `error.code` values: `file_not_found`, `processing_error`, `unknown_err
 |------|----------|---------|-----------------|
 | 0 | `EXIT_SUCCESS` | Success | Processing completed normally |
 | 1 | `EXIT_GENERAL_ERROR` | General Error | Unexpected/unhandled exception |
-| 2 | `EXIT_USAGE_ERROR` | Usage Error | Invalid or missing arguments (argparse) |
+| 2 | `EXIT_USAGE_ERROR` | Usage Error | Invalid or missing arguments (argparse). Includes passing the **removed** flags `-o`/`--output` or `--output-dir`. |
 | 3 | `EXIT_FILE_NOT_FOUND` | File Not Found | Input file does not exist |
-| 4 | `EXIT_PROCESSING_ERROR` | Processing Error | Error during matching or file writing |
+| 4 | `EXIT_PROCESSING_ERROR` | Processing Error | Error during matching, parsing, or in-place write of the order file |
 
 ### Agent Recommended Usage
 
@@ -174,7 +154,7 @@ python cli.py order.xlsx payment.xlsx --json --quiet
 ```
 
 **stdout/stderr separation**:
-- **stdout**: JSON result only (when `--json`) or result file path (text mode)
+- **stdout**: JSON envelope (with `--json`) or a single "订单文件已就地更新" summary line (text mode)
 - **stderr**: all logs, progress messages, warnings, and errors
 
 Python subprocess integration:
@@ -187,12 +167,12 @@ result = subprocess.run(
 )
 
 if result.returncode == 0:
-    data = json.loads(result.stdout)
-    print(f"Matched {data['data']['statistics']['matched_rows']} rows")
-    print(f"Match rate: {data['data']['statistics']['match_rate']}")
+    data = json.loads(result.stdout)["data"]
+    print(f"Matched {data['statistics']['matched_rows']} rows")
+    print(f"Match rate: {data['statistics']['match_rate']}")
 elif result.returncode == 3:
-    err = json.loads(result.stdout)
-    print(f"File not found: {err['error']['message']}")
+    err = json.loads(result.stdout)["error"]
+    print(f"File not found: {err['message']}")
 else:
     print(f"Failed with exit code {result.returncode}")
 ```
@@ -204,7 +184,9 @@ else:
 | Input file does not exist | 3 | `file_not_found` | Verify file path; check cwd or `ExcelForHandel/` |
 | Malformed or unreadable file | 4 | `processing_error` | Confirm file is valid .xlsx/.xls/.csv; re-save as UTF-8 if CSV |
 | Missing required columns | 4 | `processing_error` | Ensure order file has 订单号, 外部订单号, 订单金额 columns |
-| Invalid CLI arguments | 2 | *(argparse prints to stderr)* | Run `python cli.py --help` to check syntax |
+| Order file cannot be overwritten (locked / read-only) | 4 | `processing_error` | Close the file in Excel; check filesystem permissions |
+| Passing removed flag (`-o`, `--output`, `--output-dir`) | 2 | *(argparse on stderr)* | Remove the flag; back up the order file beforehand if you wanted "save as" |
+| Other invalid CLI arguments | 2 | *(argparse on stderr)* | Run `python cli.py --help` to check syntax |
 
 ## WHERE TO LOOK
 
@@ -215,9 +197,9 @@ else:
 | File reading (CSV/Excel) | utils.py `read_file_with_appropriate_method()` L39-186 | Encoding fallback chain, comment skipping |
 | File writing | utils.py `write_result_file()` L539 | Preserves CSV vs Excel format |
 | Sales report period | utils.py `add_sales_report_period()` L572 | Marks 全退 and 已取消 |
-| Monthly report generation | utils.py `filter_unmarked_and_generate_report()` L743 | Filters by 出行日期 window |
-| Full sales workflow | utils.py `process_sales_report_workflow()` L887 | process → filter → report |
-| CLI flags | cli.py `main_cli()` | `-o`, `--month`, `--output-dir` |
+| Monthly report filtering | utils.py `filter_unmarked_and_generate_report()` L743 | Filters by 出行日期 window; in-memory only, no file output |
+| Full sales workflow | utils.py `process_sales_report_workflow()` L887 | process → mark → filter (in place; no report file) |
+| CLI flags | cli.py `main_cli()` | `order_file`, `payment_file`, `--month`, `--json`, `--quiet`, `-v/-vv` |
 | Interactive file picker | excel_merge.py `main()` | Lists ExcelForHandel/ contents |
 | API endpoints | excel_merge_api.py | POST /merge, POST /merge/json, GET /download/\<f\> |
 | Package entry points | setup.py `entry_points` | excel-merge → excel_merge:main, excel-merge-cli → cli:main_cli |
@@ -242,7 +224,7 @@ else:
 | `add_sales_report_period(order_df, verbose)` | 572 | Mark 全退/已取消 in 销售报表账期 column |
 | `parse_date(date_val)` | 687 | Multi-format date parser → `Optional[pd.Timestamp]` |
 | `get_year_month(date_val)` | 726 | Date → "YYYYMM" string |
-| `filter_unmarked_and_generate_report(...)` | 743 | Phase 2: filter unmarked rows, write report_YYYYMM.xlsx |
+| `filter_unmarked_and_generate_report(...)` | 743 | Phase 2: filter unmarked rows, return DataFrames in memory (no file write) |
 | `process_sales_report_workflow(...)` | 887 | End-to-end: process + filter + report |
 
 ### Dependency Graph
@@ -289,7 +271,7 @@ Then retry with separators `,`, `;`, `\t`, then `sep=None` auto-detect.
 - CSV columns containing `"订单"` or `"流水"` → cast to str after read
 
 ### File Handling
-- **In-place modification**: default behavior overwrites original order file (use `-o` to redirect)
+- **In-place modification**: the CLI always overwrites the original order file. The `-o`/`--output` and `--output-dir` flags have been removed; copy the file manually if you need a "save as".
 - **CSV comments**: lines starting with `#` skipped; first non-comment line = header
 - **CSV write**: `utf-8-sig` encoding
 - **File discovery**: searches cwd → `ExcelForHandel/` subdirectory

@@ -156,7 +156,6 @@ def merge_files():
                 order_file=str(order_path),
                 payment_file=str(payment_path),
                 target_month=month,
-                output_dir=RESULT_FOLDER,
                 verbose=False
             )
 
@@ -165,6 +164,7 @@ def merge_files():
 
             report_filename = f"report_{month}_{session_id}.xlsx"
             result_path = RESULT_FOLDER / report_filename
+            # 工作流不再写出报表文件；由 API 自行落盘以服务下载
             write_result_file(report_df, result_path)
             download_name = f"report_{month}.xlsx"
         else:
@@ -230,7 +230,6 @@ def merge_files_json():
                 order_file=str(order_path),
                 payment_file=str(payment_path),
                 target_month=month,
-                output_dir=RESULT_FOLDER,
                 verbose=False
             )
 
@@ -239,6 +238,7 @@ def merge_files_json():
 
             report_filename = f"report_{month}_{session_id}.xlsx"
             result_path = RESULT_FOLDER / report_filename
+            # 工作流不再写出报表文件；由 API 自行落盘以服务下载
             write_result_file(report_df, result_path)
             
             total_rows = len(updated_order_df)
