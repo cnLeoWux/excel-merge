@@ -62,3 +62,23 @@ excel_merge.py 在非交互式模式下 SHALL 支持 `--json` 标志，输出与
 - **WHEN** 用户在有 TTY 的终端中执行 `python excel_merge.py --json`（未使用 `--non-interactive`）
 - **THEN** 程序正常进入交互式文件选择流程
 - **AND** 处理完成后以 JSON 格式输出结果
+
+### Requirement: Interactive mode sales report trigger
+The interactive mode (`excel_merge.py`) SHALL provide an option to trigger the sales report workflow after file selection.
+
+#### Scenario: User opts to generate a sales report
+- **WHEN** the user successfully selects an order and payment file in interactive mode
+- **AND** the system prompts "Do you want to generate a sales report? (y/n)"
+- **AND** the user enters 'y'
+- **THEN** the system SHALL prompt the user to "Enter the report month (e.g., 202602): "
+- **AND** the `process_sales_report_workflow` SHALL be called with the provided month.
+
+#### Scenario: User declines to generate a sales report
+- **WHEN** the user successfully selects an order and payment file in interactive mode
+- **AND** the system prompts "Do you want to generate a sales report? (y/n)"
+- **AND** the user enters 'n'
+- **THEN** the standard file processing SHALL continue without triggering the sales report workflow.
+
+#### Scenario: Invalid month format in interactive mode
+- **WHEN** the user provides an invalid month format (e.g., "2026-02" or "abc")
+- **THEN** the system SHALL display an error message and prompt again for a valid `YYYYMM` format.
