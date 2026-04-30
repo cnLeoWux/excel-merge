@@ -22,36 +22,58 @@ Excel Merge Tool 是一个基于 Python 的工具，用于将订单 Excel/CSV �
 
 ### Code Style
 
-- 遵循 PEP 8，4 空格缩进，`snake_case` 命名函数和变量。
+- 遵循 PEP 8，**行长度 ≤ 79 字符**，4 空格缩进，`snake_case` 命名函数和变量。
 - import 顺序：标准库 → 第三方 → 本地（绝对导入）。
+- 多行表达式：优先使用圆括号包裹，避免使用 `\` 行 continuation。
 - 函数签名使用类型提示（`Optional[str]`, `pd.DataFrame`, `Path`）。
 - `verbose: bool = False` 模式用于可选调试输出。
 - 业务列名使用中文（订单号、商户订单号、支付手续费等）。
 - 金额列名包含全角括号：`支出金额（-元）`、`收入金额（+元）`，必须精确匹配。
+- NaN 值必须使用 `pd.isna()` / `pd.notna()` 检查，**禁止与字符串 `"nan"` 直接比较**。
 
 ### Architecture Patterns
 
 - **单核心模块**：`utils.py` 集中所有业务逻辑（~930 行，匹配/读写/报表）。三个入口文件均调用 utils 函数：
+
   ```
   cli.py ──────────┐
   excel_merge.py ──┼──→ utils.py
   excel_merge_api.py┘
   ```
-- **入口职责分离**：`cli.py`（argparse + JSON envelope）、`excel_merge.py`（交互式 + 非交互式）、`excel_merge_api.py`（Flask 端点）。
-- **文件读取容错**：编码回退链 `gbk → utf-8 → gb2312 → latin-1 → utf-8-sig`；CSV 分隔符重试 `,` → `;` → `\t` → `sep=None`。
+
+  核心函数表：
+
+  | Function | Line | Purpose |
+  |----------|------|---------|
+  | `extract_p_number()` | 15 | Regex `r"P\d+"` 提取 |
+  | `process_excel_files()` | 189 | 主匹配循环（exact→P-number→hyphen） |
+  | `add_sales_report_period()` | 572 | 标注全退/已取消 |
+  | `filter_unmarked_and_generate_report()` | 743 | 阶段二筛选（内存操作，无文件输出） |
+  | `process_sales_report_workflow()` | 887 | 端到端销售报表工作流 |
+
+- **入口职责分离**：
+  - `cli.py`（argparse + JSON envelope，`main_cli()`，console script `excel-merge-cli`）
+  - `excel_merge.py`（交互式 + 非交互式，`main()`，console script `excel-merge`）
+  - `excel_merge_api.py`（Flask 端点）
+- **文件查找**：先搜索 cwd，再搜索 `ExcelForHandel/` 目录。
+- **CLI/API 输出契约**：
+  - JSON 信封：`{ok: bool, data: {...}, error: str|null}`
+  - 语义化退出码：0=成功，1=一般错误，2=使用错误（含传递已移除的 flags），3=文件未找到，4=处理错误
+  - stdout 输数据，stderr 输日志
+- **编码回退链**：`gbk → utf-8 → gb2312 → latin-1 → utf-8-sig`。
+- **CSV 分隔符重试**：`"," → ";" → "\t" → sep=None`。
 - **Excel 引擎选择**：.xlsx 用 zipfile 探测 → openpyxl（成功）/ xlrd（BadZipFile）；.xls 始终用 xlrd。
 - **匹配算法优先级**：
   1. 订单号前 20 字符 ↔ 商户订单号（精确匹配）
-  2. P-number 匹配：`r"P\d+"` 从 `外部订单号` ↔ `商品名称` 提取后比较
+  2. P-number 匹配：`r"P\d+"` 从 `外部订单号` ↔ `商品名称` 提取后比较，**区分大小写**（不匹配小写 `p`）
   3. 连字符匹配：`外部订单号` 各部分 ↔ `商品名称` 最后 `-` 后的段
   4. 业务类型校验：正单（金额>0）↔ 收费/服务费；退单（金额<0）↔ 退费/退款
   5. 金额赋值：正单→`支出金额（-元）`；退单→`收入金额（+元）`；零金额→`支付手续费=0.0`
 - **销售报表两阶段**：阶段一匹配 + 标注（全退/已取消）；阶段二筛选未标注 + 1 年出行日期窗口 + 在原 DataFrame 中标注"销售报表YYYYMM"，由调用方就地写回订单文件（CLI 不再生成独立的 `report_YYYYMM.xlsx`；HTTP API 内部仍可落盘以提供下载）。
-- **CLI/API 输出契约**：`--json` 信封 `{ok, data, error}`；语义化退出码 0/1/2/3/4；stdout 输数据，stderr 输日志。
-- **文件查找**：先搜索 cwd，再搜索 `ExcelForHandel/`。
 
 ### Testing Strategy
 
+- **测试框架**：pytest（`pip install -r requirements-dev.txt`），测试目录 `tests/`。
 - **现状**：仓库根的 `test_*.py` 是手动验证脚本（仅 `print`，无断言），**不是真正的 pytest 测试套件**；无 CI/CD、无覆盖率工具。
 - **手动验证**：`verify_result.py`、`verify_original.py` 用于人工对比输出与原始数据。
 - **新功能验证要求**：

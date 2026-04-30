@@ -104,7 +104,7 @@ def read_file_with_appropriate_method(file_path: str) -> pd.DataFrame:
                         )
                         if df.shape[0] > 0 and df.shape[1] > 5:
                             break
-                    except:
+                    except Exception:
                         continue
                 if df is not None and df.shape[0] > 0:
                     break
@@ -140,7 +140,7 @@ def read_file_with_appropriate_method(file_path: str) -> pd.DataFrame:
             except zipfile.BadZipFile:
                 # If it's not a valid zip file, fall back to xlrd (sometimes older xls files have xlsx extension)
                 engine = "xlrd"
-            except:
+            except Exception:
                 # For any other error, fall back to openpyxl
                 engine = "openpyxl"
         elif ext == ".xls":
@@ -161,7 +161,7 @@ def read_file_with_appropriate_method(file_path: str) -> pd.DataFrame:
                 dtype={"订单号": str, "商户订单号": str, "商务订单号": str},
                 engine="openpyxl",
             )
-        except:
+        except Exception:
             # For CSV files with encoding issues, try different encodings
             encodings = ["utf-8", "gbk", "gb2312", "latin-1"]
             df = None

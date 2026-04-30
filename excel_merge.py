@@ -86,12 +86,6 @@ def main():
         action="store_true",
         help="Output result as JSON to stdout",
     )
-    parser.add_argument(
-        "--output",
-        "-o",
-        type=str,
-        help="Output file path (default: modify original file)",
-    )
 
     # Logging control
     parser.add_argument(
@@ -113,12 +107,6 @@ def main():
         type=str,
         default=None,
         help="Target month for sales report (format: YYYYMM, e.g., 202602)",
-    )
-    parser.add_argument(
-        "--output-dir",
-        type=str,
-        default=None,
-        help="Output directory for the generated report",
     )
 
     args = parser.parse_args()
@@ -245,15 +233,6 @@ def main():
                     break
                 else:
                     print("Invalid format. Please use YYYYMM format (e.g., 202602).")
-            
-            output_dir_str = input("Enter the output directory for the report (press Enter to use current directory): ").strip()
-            if output_dir_str:
-                args.output_dir = output_dir_str
-
-        output_file_str = input("Enter the output file path (press Enter to modify original file): ").strip()
-        if output_file_str:
-            args.output = output_file_str
-
 
 
     # Processing
@@ -277,27 +256,12 @@ def main():
                 str(order_file_path),
                 str(payment_file_path),
                 args.month,
-                output_dir=args.output_dir,
                 verbose=verbose,
             )
 
-            # Save result
-            if args.output:
-                output_path = Path(args.output)
-                write_result_file(updated_df, output_path)
-                result_file = args.output
-            else:
-                write_result_file(updated_df, order_file_path)
-                result_file = str(order_file_path)
-
-            # Report file info
-            report_file = None
-            if len(report_df) > 0:
-                report_filename = f"report_{args.month}.xlsx"
-                report_file = str(Path(args.output_dir or ".") / report_filename)
-                if not args.json and not args.quiet:
-                    print(f"\n新报表文件: {report_filename}")
-                    print(f"包含 {len(report_df)} 行数据")
+            # Always write in place to order file
+            write_result_file(updated_df, order_file_path)
+            result_file = str(order_file_path)
 
             # Calculate statistics
             total_rows = len(updated_df)
@@ -317,8 +281,6 @@ def main():
                             "matched_rows": int(matched_rows),
                             "match_rate": match_rate,
                         },
-                        "report_file": report_file,
-                        "report_rows": len(report_df) if len(report_df) > 0 else 0,
                     },
                     json_mode=True,
                 )
@@ -330,14 +292,9 @@ def main():
                 str(order_file_path), str(payment_file_path), verbose=verbose
             )
 
-            # Save result
-            if args.output:
-                output_path = Path(args.output)
-                write_result_file(result_df, output_path)
-                result_file = args.output
-            else:
-                write_result_file(result_df, order_file_path)
-                result_file = str(order_file_path)
+            # Always write in place to order file
+            write_result_file(result_df, order_file_path)
+            result_file = str(order_file_path)
 
             # Calculate statistics for JSON output
             if args.json:
