@@ -6,6 +6,7 @@ This module contains common functions shared between the interactive and CLI ver
 import pandas as pd
 import os
 import re
+import shutil
 from pathlib import Path
 from typing import Optional, Any
 from datetime import datetime
@@ -13,6 +14,36 @@ import logging
 
 # Configure logger for this module
 logger = logging.getLogger(__name__)
+
+
+def auto_backup(file_path: str) -> Path:
+    """
+    自动备份文件到 backup/ 目录
+
+    Args:
+        file_path: 需要备份的文件路径
+
+    Returns:
+        Path: 备份文件的路径
+    """
+    source = Path(file_path)
+    if not source.exists():
+        return source
+
+    # 创建 backup 目录
+    backup_dir = source.parent / "backup"
+    backup_dir.mkdir(parents=True, exist_ok=True)
+
+    # 生成带时间戳的备份文件名
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    backup_name = f"{source.stem}_backup_{timestamp}{source.suffix}"
+    backup_path = backup_dir / backup_name
+
+    # 复制文件
+    shutil.copy2(source, backup_path)
+    logger.info(f"已备份文件到: {backup_path}")
+
+    return backup_path
 
 
 def extract_p_number(text: Any) -> Optional[str]:

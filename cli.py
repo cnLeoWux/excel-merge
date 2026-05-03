@@ -19,6 +19,7 @@ import pandas as pd
 
 from utils import (
     add_sales_report_period,
+    auto_backup,
     process_excel_files,
     process_sales_report_workflow,
     write_result_file,
@@ -288,6 +289,12 @@ def main_cli():
         if args.target_month:
             print(f"  目标月份: {args.target_month}")
 
+    # ==================== 自动备份 ====================
+    # 在做任何处理之前，先创建备份
+    backup_path = auto_backup(args.order_file)
+    if not args.json and not args.quiet:
+        print(f"  备份已创建: {Path(backup_path).name}")
+
     # ==================== 执行处理 ====================
     try:
         verbose = args.verbose >= 1 and not args.quiet
@@ -378,8 +385,6 @@ def main_cli():
 
             if not args.json and not args.quiet:
                 print(f"完成: 匹配 {int(matched_rows)}/{total_rows} ({match_rate}), 标注 {int(marked_count)} 行")
-                if len(report_df) > 0:
-                    print(f"已生成报表文件: report_{args.target_month}.xlsx")
 
             output_result(
                 data={

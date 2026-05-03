@@ -33,7 +33,7 @@ def workdir(sample_data_dir, tmp_path):
 def test_cli_inplace_modification(workdir):
     """All merge results write back to the order file in place."""
     tmp_path, order, payment = workdir
-    proc = run_cli([str(order), str(payment), "--quiet"], cwd=tmp_path)
+    proc = run_cli([str(order), str(payment), "202603", "--quiet"], cwd=tmp_path)
     assert proc.returncode == 0, proc.stderr
     df = pd.read_excel(order)
     assert "支付手续费" in df.columns
@@ -43,7 +43,7 @@ def test_cli_json_envelope_success(workdir):
     """JSON success envelope contains output_file + statistics, nothing else."""
     tmp_path, order, payment = workdir
     proc = run_cli(
-        [str(order), str(payment), "--json", "--quiet"],
+        [str(order), str(payment), "202603", "--json", "--quiet"],
         cwd=tmp_path,
     )
     assert proc.returncode == 0, proc.stderr
@@ -57,12 +57,12 @@ def test_cli_json_envelope_success(workdir):
     assert "report_rows" not in data
     assert "warnings" not in data
     stats = data["statistics"]
-    assert set(stats.keys()) == {"total_rows", "matched_rows", "match_rate"}
+    assert set(stats.keys()) == {"total_rows", "matched_rows", "match_rate", "marked_rows"}
 
 
 def test_cli_file_not_found_exit_code(tmp_path):
     proc = run_cli(
-        ["does_not_exist.xlsx", "also_missing.xlsx", "--json", "--quiet"],
+        ["does_not_exist.xlsx", "also_missing.xlsx", "202603", "--json", "--quiet"],
         cwd=tmp_path,
     )
     assert proc.returncode == 3
@@ -101,14 +101,14 @@ def test_cli_rejects_removed_output_dir_flag(workdir):
 
 
 def test_cli_sales_report_workflow_no_files_emitted(workdir):
-    """`--month` writes back in place and produces no report_*.xlsx anywhere."""
+    """Full workflow writes back in place and produces no report_*.xlsx anywhere."""
     tmp_path, order, payment = workdir
 
     # Snapshot every file path under tmp_path before invocation
     snapshot_before = {p for p in tmp_path.rglob("*") if p.is_file()}
 
     proc = run_cli(
-        [str(order), str(payment), "--month", "202603", "--json", "--quiet"],
+        [str(order), str(payment), "202603", "--json", "--quiet"],
         cwd=tmp_path,
     )
     assert proc.returncode == 0, proc.stderr
@@ -145,7 +145,7 @@ def test_cli_write_failure_returns_processing_error(workdir):
     os.chmod(order, stat.S_IREAD)
     try:
         proc = run_cli(
-            [str(order), str(payment), "--month", "202603", "--json", "--quiet"],
+            [str(order), str(payment), "202603", "--json", "--quiet"],
             cwd=tmp_path,
         )
     finally:

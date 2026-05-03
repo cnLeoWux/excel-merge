@@ -151,8 +151,8 @@ python cli.py /tmp/order.xlsx /tmp/payment.xlsx 202603 -v
 
 ### 2.4 处理结果
 
-- **覆盖原文件**：处理结果覆盖 `/tmp/openclaw/excel-merge/` 下的订单文件
-- **报表文件**：完整工作流生成 `report_{target_month}.xlsx`
+- **覆盖原文件**：处理结果就地写回订单文件（所有标记含在原文件中）
+- **自动备份**：处理前自动备份原订单文件到 `backup/` 目录
 - **退出码**：`0=成功，2=用法错误，3=文件未找到，4=处理错误`
 
 ---
@@ -161,13 +161,13 @@ python cli.py /tmp/order.xlsx /tmp/payment.xlsx 202603 -v
 
 ### 3.1 上传处理后的文件到飞书
 
-使用 `feishu_drive_file` 上传：
+处理结果已就地更新到订单文件，直接上传该文件：
 
 ```python
 feishu_drive_file(
     action="upload",
-    file_path="/tmp/openclaw/excel-merge/report_202602.xlsx",
-    name="订单匹配报表_202602.xlsx"
+    file_path="/tmp/openclaw/excel-merge/订单文件.xlsx",
+    name="订单匹配结果_202602.xlsx"
 )
 ```
 
@@ -180,21 +180,21 @@ message(
     action="send",
     channel="feishu",
     target="chat:oc_ae63efc47c407a25623c0ebd73653eaf",
-    message="✅ 匹配完成！\n\n📊 处理结果：\n- 正单匹配：X 条\n- 退单匹配：X 条\n- 未匹配：X 条\n- 全退标记：X 条\n- 已取消标记：X 条\n\n📎 报表文件已生成，请查收。"
+    message="✅ 匹配完成！\n\n📊 处理结果：\n- 正单匹配：X 条\n- 退单匹配：X 条\n- 未匹配：X 条\n- 全退标记：X 条\n- 已取消标记：X 条\n\n📎 处理后的订单文件已生成，请查收。"
 )
 ```
 
 ### 3.3 发送文件消息
 
-报表文件通过 `message` 的 `filePath` 参数发送：
+通过 `message` 的 `file_path` 参数发送更新后的订单文件：
 
 ```python
 message(
     action="send",
     channel="feishu",
     target="chat:oc_ae63efc47c407a25623c0ebd73653eaf",
-    file_path="/tmp/openclaw/excel-merge/report_202602.xlsx",
-    message="📎 报表文件已生成，请查收。"
+    file_path="/tmp/openclaw/excel-merge/订单文件.xlsx",
+    message="📎 处理后的订单文件已生成，请查收。"
 )
 ```
 
