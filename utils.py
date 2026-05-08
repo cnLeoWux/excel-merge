@@ -104,11 +104,12 @@ def read_file_with_appropriate_method(file_path: str) -> pd.DataFrame:
                     skiprows=skip_rows,
                     header=0,  # Use the first non-comment line as header
                     engine="python",  # Use python engine for better encoding handling
-                    on_bad_lines="skip",  # Skip bad lines
+                    on_bad_lines="warn",  # Warn on bad lines
+                    dtype=str,
                 )
 
                 # Check if we have at least some expected columns or reasonable data
-                if df.shape[0] > 0 and df.shape[1] > 5:
+                if df.shape[0] > 0 and df.shape[1] >= 2:
                     break  # We have a valid dataframe
 
             except UnicodeDecodeError:
@@ -129,9 +130,9 @@ def read_file_with_appropriate_method(file_path: str) -> pd.DataFrame:
                             encoding=encoding,
                             sep=sep,
                             engine="python",
-                            on_bad_lines="skip",
+                            on_bad_lines="warn", dtype=str,
                         )
-                        if df.shape[0] > 0 and df.shape[1] > 5:
+                        if df.shape[0] > 0 and df.shape[1] >= 2:
                             break
                     except (UnicodeDecodeError, pd.errors.ParserError):
                         continue
@@ -144,16 +145,17 @@ def read_file_with_appropriate_method(file_path: str) -> pd.DataFrame:
                 file_path,
                 encoding="gbk",  # Default to gbk for Chinese files
                 engine="python",
-                on_bad_lines="skip",
+                on_bad_lines="warn",
                 sep=None,  # Auto-detect separator
                 skip_blank_lines=True,
+                dtype=str,
             )
 
         # Ensure critical columns are treated as strings
         for col in df.columns:
             col_str = str(col)
             if "订单" in col_str or "流水" in col_str:
-                df[col] = df[col].fillna("").astype(str)
+                df[col] = df[col].fillna("").astype(str).str.strip('="\t ')
 
         return df
     elif ext in [".xlsx", ".xls"]:
@@ -196,25 +198,25 @@ def read_file_with_appropriate_method(file_path: str) -> pd.DataFrame:
             df = None
             for encoding in encodings:
                 try:
-                    df = pd.read_csv(file_path, encoding=encoding)
+                    df = pd.read_csv(file_path, encoding=encoding, dtype=str)
                     if "订单号" in df.columns:
-                        df["订单号"] = df["订单号"].fillna("").astype(str)
+                        df["订单号"] = df["订单号"].fillna("").astype(str).str.strip('="\t ')
                     if "商户订单号" in df.columns:
-                        df["商户订单号"] = df["商户订单号"].fillna("").astype(str)
+                        df["商户订单号"] = df["商户订单号"].fillna("").astype(str).str.strip('="\t ')
                     if "商务订单号" in df.columns:
-                        df["商务订单号"] = df["商务订单号"].fillna("").astype(str)
+                        df["商务订单号"] = df["商务订单号"].fillna("").astype(str).str.strip('="\t ')
                     return df
                 except UnicodeDecodeError:
                     continue  # Try next encoding
 
             # If all encodings failed, try with utf-8-sig
-            df = pd.read_csv(file_path, encoding="utf-8-sig")
+            df = pd.read_csv(file_path, encoding="utf-8-sig", dtype=str)
             if "订单号" in df.columns:
-                df["订单号"] = df["订单号"].fillna("").astype(str)
+                df["订单号"] = df["订单号"].fillna("").astype(str).str.strip('="\t ')
             if "商户订单号" in df.columns:
-                df["商户订单号"] = df["商户订单号"].fillna("").astype(str)
+                df["商户订单号"] = df["商户订单号"].fillna("").astype(str).str.strip('="\t ')
             if "商务订单号" in df.columns:
-                df["商务订单号"] = df["商务订单号"].fillna("").astype(str)
+                df["商务订单号"] = df["商务订单号"].fillna("").astype(str).str.strip('="\t ')
             return df
             return df
 
@@ -650,7 +652,7 @@ def add_sales_report_period(
 
     # 确保订单号列为字符串类型
     if "订单号" in df.columns:
-        df["订单号"] = df["订单号"].fillna("").astype(str)
+        df["订单号"] = df["订单号"].fillna("").astype(str).str.strip('="\t ')
 
     if verbose:
         logger.info("\n=== 开始计算销售报表账期 ===")
