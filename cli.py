@@ -308,28 +308,49 @@ def main_cli():
                 args.order_file, args.payment_file, verbose=verbose
             )
 
-            # 保存结果（覆盖原文件）
-            write_result_file(result_df, Path(args.order_file))
-
-            # 计算统计
-            total_rows = len(result_df)
-            matched_rows = result_df["支付手续费"].notna().sum()
-            match_rate = f"{(matched_rows / total_rows * 100):.2f}%" if total_rows > 0 else "0.00%"
-
-            if not args.json and not args.quiet:
-                print(f"匹配完成: {int(matched_rows)}/{total_rows} ({match_rate})")
-
-            output_result(
-                data={
-                    "output_file": args.order_file,
-                    "statistics": {
-                        "total_rows": total_rows,
-                        "matched_rows": int(matched_rows),
-                        "match_rate": match_rate,
+            # 统一就地写回订单文件；任何写入异常 → processing_error
+            import tempfile
+            import shutil
+            import os
+            try:
+                order_path = Path(args.order_file)
+                fd, tmp_path = tempfile.mkstemp(dir=order_path.parent, suffix=order_path.suffix)
+                os.close(fd)
+                write_result_file(result_df, Path(tmp_path))
+                shutil.move(tmp_path, order_path)
+    
+                # 计算统计
+                total_rows = len(result_df)
+                matched_rows = result_df["支付手续费"].notna().sum()
+                match_rate = f"{(matched_rows / total_rows * 100):.2f}%" if total_rows > 0 else "0.00%"
+    
+                if not args.json and not args.quiet:
+                    print(f"匹配完成: {int(matched_rows)}/{total_rows} ({match_rate})")
+    
+                output_result(
+                    data={
+                        "output_file": args.order_file,
+                        "statistics": {
+                            "total_rows": total_rows,
+                            "matched_rows": int(matched_rows),
+                            "match_rate": match_rate,
+                        },
                     },
-                },
-                json_mode=args.json,
-            )
+                    json_mode=args.json,
+                )
+    
+            except Exception as e:
+                if 'tmp_path' in locals() and os.path.exists(tmp_path):
+                    try: os.remove(tmp_path)
+                    except: pass
+                output_result(
+                    error={
+                        "code": "processing_error",
+                        "message": f"无法写回订单文件 '{args.order_file}': {e}",
+                    },
+                    json_mode=args.json,
+                )
+                sys.exit(EXIT_PROCESSING_ERROR)
 
         elif args.mark_only:
             # 分支2: 仅标注

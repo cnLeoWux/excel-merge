@@ -21,6 +21,7 @@ UPLOAD_FOLDER = Path("uploads")
 RESULT_FOLDER = Path("results")
 ALLOWED_EXTENSIONS = {'.xlsx', '.xls', '.csv'}
 MAX_CONTENT_LENGTH = 16 * 1024 * 1024  # 16MB max file size
+app.config['MAX_CONTENT_LENGTH'] = MAX_CONTENT_LENGTH
 
 # Create directories
 UPLOAD_FOLDER.mkdir(exist_ok=True)
@@ -186,6 +187,18 @@ def merge_files():
             mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
         )
         
+    except OSError as e:
+        print(f"I/O Error processing request: {e}")
+        return jsonify({
+            'error': 'File processing failed',
+            'message': str(e)
+        }), 500
+    except ValueError as e:
+        print(f"Data format error: {e}")
+        return jsonify({
+            'error': 'Invalid data format',
+            'message': str(e)
+        }), 400
     except Exception as e:
         print(f"Error processing request: {e}")
         import traceback
@@ -288,6 +301,16 @@ def merge_files_json():
                 }
             })
         
+    except OSError as e:
+        return jsonify({
+            'success': False,
+            'error': f'I/O Error: {str(e)}'
+        }), 500
+    except ValueError as e:
+        return jsonify({
+            'success': False,
+            'error': f'Data Error: {str(e)}'
+        }), 400
     except Exception as e:
         return jsonify({
             'success': False,
@@ -298,8 +321,9 @@ def merge_files_json():
 @app.route('/download/<filename>')
 def download_file(filename):
     """Download a processed result file"""
+    filename = secure_filename(filename)
     file_path = RESULT_FOLDER / filename
-    if not file_path.exists():
+    if not file_path.exists() or not filename:
         return jsonify({'error': 'File not found'}), 404
     
     return send_file(
@@ -321,7 +345,11 @@ if __name__ == '__main__':
     print("  POST /merge     - Upload and merge (returns file)")
     print("  POST /merge/json - Upload and merge (returns JSON)")
     print("  GET  /download/<file> - Download result")
-    print("\nStarting server on http://localhost:5000")
+    
+    host = os.environ.get("FLASK_HOST", "127.0.0.1")
+    debug_mode = os.environ.get("FLASK_DEBUG", "0").lower() in ("1", "true", "yes")
+    
+    print(f"\nStarting server on http://{host}:5000 (Debug: {debug_mode})")
     print("=" * 60)
     
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    app.run(host=host, port=5000, debug=debug_mode)

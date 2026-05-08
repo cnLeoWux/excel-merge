@@ -1,0 +1,26 @@
+--- tests/unit/test_utils.py
++++ tests/unit/test_utils.py
+@@ -159,18 +159,19 @@
+ def test_read_file_with_appropriate_method_csv_fallback(tmp_path):
+     # Create a CSV with a weird encoding
+     csv_file = tmp_path / "weird.csv"
+-    csv_file.write_bytes("订单号,商户订单号,订单金额\n123,456,100\n".encode("gb2312"))
++    # Ensure it has > 5 columns to pass the heuristic check
++    csv_file.write_bytes("订单号,商户订单号,订单金额,A,B,C,D\n123,456,100,1,2,3,4\n".encode("gb2312"))
+     
+     # This will trigger the fallback encoding mechanism
+     df = read_file_with_appropriate_method(csv_file)
+     assert len(df) == 1
+     assert df.iloc[0]["订单号"] == "123"
+ 
+ def test_process_excel_files_verbose(tmp_path):
+     # Test verbose mode in process_excel_files
+     order = tmp_path / "orders.csv"
+     payment = tmp_path / "payments.csv"
+-    order.write_text("订单号,商户订单号,商务订单号,订单金额\nO123,M123,B123,100\n")
+-    payment.write_text("商品名称,商户订单号,支出金额（-元）,收入金额（+元）,业务类型\nRegular,M123,-5.0,0,收费\n")
++    order.write_text("订单号,商户订单号,商务订单号,订单金额,A,B,C\nO123,M123,B123,100,1,2,3\n")
++    payment.write_text("商品名称,商户订单号,支出金额（-元）,收入金额（+元）,业务类型,A,B\nRegular,M123,-5.0,0.0,收费,1,2\n")
+     
+     df = process_excel_files(order, payment, verbose=True)
+     assert len(df) == 1

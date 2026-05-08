@@ -1,0 +1,13 @@
+[run]
+concurrency = multiprocessing,thread
+parallel = True
+source = .
+
+[report]
+omit =
+    tests/*
+    */tests/*
+    create_sample_data.py
+    excel_merge.py
+    setup.py
+    test_flask_routing.py

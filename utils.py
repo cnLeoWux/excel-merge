@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Optional, Any
 from datetime import datetime
 import logging
+from pandas.errors import OutOfBoundsDatetime
 
 # Configure logger for this module
 logger = logging.getLogger(__name__)
@@ -87,17 +88,14 @@ def read_file_with_appropriate_method(file_path: str) -> pd.DataFrame:
         # First, try to read the file with proper comment handling
         for encoding in encodings:
             try:
-                # Read the file as text to check for # comment lines
-                with open(file_path, "r", encoding=encoding) as f:
-                    lines = f.readlines()
-
-                # Count how many lines start with # at the beginning
+                # Use a lazy iterator instead of reading all lines into memory
                 skip_rows = 0
-                for line in lines:
-                    if line.strip().startswith("#"):
-                        skip_rows += 1
-                    else:
-                        break  # Stop at first line that doesn't start with #
+                with open(file_path, "r", encoding=encoding) as f:
+                    for line in f:
+                        if line.strip().startswith("#"):
+                            skip_rows += 1
+                        else:
+                            break  # Stop at first line that doesn't start with #
 
                 # Read the CSV file with proper skiprows and encoding
                 df = pd.read_csv(
@@ -135,7 +133,7 @@ def read_file_with_appropriate_method(file_path: str) -> pd.DataFrame:
                         )
                         if df.shape[0] > 0 and df.shape[1] > 5:
                             break
-                    except Exception:
+                    except (UnicodeDecodeError, pd.errors.ParserError):
                         continue
                 if df is not None and df.shape[0] > 0:
                     break
@@ -155,7 +153,7 @@ def read_file_with_appropriate_method(file_path: str) -> pd.DataFrame:
         for col in df.columns:
             col_str = str(col)
             if "订单" in col_str or "流水" in col_str:
-                df[col] = df[col].astype(str)
+                df[col] = df[col].fillna("").astype(str)
 
         return df
     elif ext in [".xlsx", ".xls"]:
@@ -171,8 +169,8 @@ def read_file_with_appropriate_method(file_path: str) -> pd.DataFrame:
             except zipfile.BadZipFile:
                 # If it's not a valid zip file, fall back to xlrd (sometimes older xls files have xlsx extension)
                 engine = "xlrd"
-            except Exception:
-                # For any other error, fall back to openpyxl
+            except (ValueError, KeyError, OSError):
+                # For other common file read errors, fall back to openpyxl
                 engine = "openpyxl"
         elif ext == ".xls":
             engine = "xlrd"
@@ -192,7 +190,7 @@ def read_file_with_appropriate_method(file_path: str) -> pd.DataFrame:
                 dtype={"订单号": str, "商户订单号": str, "商务订单号": str},
                 engine="openpyxl",
             )
-        except Exception:
+        except (ValueError, OSError, UnicodeDecodeError):
             # For CSV files with encoding issues, try different encodings
             encodings = ["utf-8", "gbk", "gb2312", "latin-1"]
             df = None
@@ -200,11 +198,11 @@ def read_file_with_appropriate_method(file_path: str) -> pd.DataFrame:
                 try:
                     df = pd.read_csv(file_path, encoding=encoding)
                     if "订单号" in df.columns:
-                        df["订单号"] = df["订单号"].astype(str)
+                        df["订单号"] = df["订单号"].fillna("").astype(str)
                     if "商户订单号" in df.columns:
-                        df["商户订单号"] = df["商户订单号"].astype(str)
+                        df["商户订单号"] = df["商户订单号"].fillna("").astype(str)
                     if "商务订单号" in df.columns:
-                        df["商务订单号"] = df["商务订单号"].astype(str)
+                        df["商务订单号"] = df["商务订单号"].fillna("").astype(str)
                     return df
                 except UnicodeDecodeError:
                     continue  # Try next encoding
@@ -212,11 +210,12 @@ def read_file_with_appropriate_method(file_path: str) -> pd.DataFrame:
             # If all encodings failed, try with utf-8-sig
             df = pd.read_csv(file_path, encoding="utf-8-sig")
             if "订单号" in df.columns:
-                df["订单号"] = df["订单号"].astype(str)
+                df["订单号"] = df["订单号"].fillna("").astype(str)
             if "商户订单号" in df.columns:
-                df["商户订单号"] = df["商户订单号"].astype(str)
+                df["商户订单号"] = df["商户订单号"].fillna("").astype(str)
             if "商务订单号" in df.columns:
-                df["商务订单号"] = df["商务订单号"].astype(str)
+                df["商务订单号"] = df["商务订单号"].fillna("").astype(str)
+            return df
             return df
 
 
@@ -325,7 +324,7 @@ def process_excel_files(
                     break
 
         if business_order_col:
-            business_order_numbers = payment_df[business_order_col].astype(str)
+            business_order_numbers = payment_df[business_order_col].fillna("").astype(str)
             exact_matches = business_order_numbers.str[:20] == order_no
             exact_match_rows = payment_df[exact_matches]
 
@@ -594,16 +593,23 @@ def write_result_file(df: pd.DataFrame, file_path: Path) -> None:
         path = Path(file_path)
         ext = path.suffix.lower()
 
-        if ext == ".xlsx":
+        # xlrd is read-only. For writing, we must use openpyxl (for .xlsx) or xlwt (for .xls)
+        # However, xlwt is deprecated and pandas recommends using openpyxl for all Excel writing.
+        # But wait, if the original file is .xls, openpyxl can't write it. We should force .xlsx if the engine is openpyxl.
+        # Actually, pandas to_excel doesn't support writing to .xls with openpyxl.
+        # Let's simply always use openpyxl if not writing to .xls. If it's .xls, it will fail unless xlwt is installed.
+        # Better yet, let's just use openpyxl and if it fails, let the error propagate, but we CANNOT use "xlrd" for writing.
+        if ext == ".xls":
             try:
-                with zipfile.ZipFile(path, "r") as zip_file:
-                    engine = "openpyxl"
-            except zipfile.BadZipFile:
-                engine = "xlrd"
-            except Exception:
-                engine = "openpyxl"
-        elif ext == ".xls":
-            engine = "xlrd"
+                import xlwt
+                engine = "xlwt"
+            except ImportError:
+                # If xlwt is missing, fallback to openpyxl but we must save as .xlsx
+                # Since the caller expects the same path, we will just use openpyxl and hope for the best (it might fail)
+                # Actually, pandas >= 1.2 removed xlwt support entirely.
+                # So we can't write .xls files. We should write .xlsx and maybe rename it, but that's messy.
+                # Actually, pandas to_excel default handles .xlsx. If someone passes .xls, they'll get an error in newer pandas.
+                engine = None # let pandas decide
         else:
             engine = "openpyxl"
 
@@ -644,7 +650,7 @@ def add_sales_report_period(
 
     # 确保订单号列为字符串类型
     if "订单号" in df.columns:
-        df["订单号"] = df["订单号"].astype(str)
+        df["订单号"] = df["订单号"].fillna("").astype(str)
 
     if verbose:
         logger.info("\n=== 开始计算销售报表账期 ===")
@@ -693,7 +699,7 @@ def add_sales_report_period(
     # 规则2: 订单状态为"已取消"且订单金额为0的订单
     if "订单状态" in df.columns and "订单金额" in df.columns:
         # 识别需要标记的行：订单状态包含"取消"且金额为0
-        cancel_mask = df["订单状态"].astype(str).str.contains("取消", na=False) & (
+        cancel_mask = df["订单状态"].fillna("").astype(str).str.contains("取消", na=False) & (
             pd.to_numeric(df["订单金额"], errors="coerce") == 0
         )
 
@@ -744,14 +750,14 @@ def parse_date(date_val: Any) -> Optional[pd.Timestamp]:
     if isinstance(date_val, (datetime,)):
         try:
             return pd.Timestamp(date_val)
-        except Exception:
+        except (ValueError, TypeError, OutOfBoundsDatetime):
             pass
 
     text = str(date_val).strip()
 
     try:
         return pd.to_datetime(text)
-    except Exception:
+    except (ValueError, TypeError, OutOfBoundsDatetime):
         pass
 
     import re

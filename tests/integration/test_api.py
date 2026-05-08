@@ -140,3 +140,43 @@ def test_merge_download_roundtrip(client, sample_data_dir):
     dl = client.get(download_url)
     assert dl.status_code == 200
     assert len(dl.data) > 0
+
+def test_merge_endpoint_with_sales_report(client, sample_data_dir):
+    order = sample_data_dir / "orders.xlsx"
+    payment = sample_data_dir / "payments.csv"
+    resp = client.post(
+        "/merge",
+        data=_multipart(order, payment, month="202603"),
+        content_type="multipart/form-data",
+    )
+    assert resp.status_code == 200, resp.get_data(as_text=True)
+    assert len(resp.data) > 0
+    cd = resp.headers.get("Content-Disposition", "")
+    assert "attachment" in cd
+    assert "report_202603.xlsx" in cd
+
+def test_merge_endpoint_empty_filename(client, tmp_path):
+    import io
+    resp = client.post(
+        "/merge",
+        data={
+            "order_file": (io.BytesIO(b""), ""),
+            "payment_file": (io.BytesIO(b""), "")
+        },
+        content_type="multipart/form-data",
+    )
+    assert resp.status_code == 400
+    assert "No order file" in resp.get_json().get("error", "")
+
+def test_merge_json_endpoint_empty_filename(client, tmp_path):
+    import io
+    resp = client.post(
+        "/merge/json",
+        data={
+            "order_file": (io.BytesIO(b""), ""),
+            "payment_file": (io.BytesIO(b""), "")
+        },
+        content_type="multipart/form-data",
+    )
+    assert resp.status_code == 400
+    assert "Empty filename" in resp.get_json().get("error", "")

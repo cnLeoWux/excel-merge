@@ -1,21 +1,49 @@
 import json
-import subprocess
 import sys
 from pathlib import Path
+import contextlib
+import io
+import unittest.mock
 
 import pandas as pd
 import pytest
 
+from cli import main_cli
+
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-CLI_PATH = PROJECT_ROOT / "cli.py"
+
+
+class CompletedProcessMock:
+    def __init__(self, returncode, stdout, stderr):
+        self.returncode = returncode
+        self.stdout = stdout
+        self.stderr = stderr
 
 
 def run_cli(args, cwd=None):
-    return subprocess.run(
-        [sys.executable, str(CLI_PATH), *args],
-        capture_output=True,
-        text=True,
-        cwd=str(cwd) if cwd else str(PROJECT_ROOT),
+    stdout_buf = io.StringIO()
+    stderr_buf = io.StringIO()
+    
+    # Mock sys.argv
+    with unittest.mock.patch.object(sys, "argv", ["excel-merge-cli", *args]):
+        with contextlib.redirect_stdout(stdout_buf), contextlib.redirect_stderr(stderr_buf):
+            # Also mock the cwd by changing directory temporarily
+            import os
+            old_cwd = os.getcwd()
+            if cwd:
+                os.chdir(str(cwd))
+            try:
+                main_cli()
+                returncode = 0
+            except SystemExit as e:
+                returncode = e.code if e.code is not None else 0
+            finally:
+                os.chdir(old_cwd)
+                
+    return CompletedProcessMock(
+        returncode=returncode,
+        stdout=stdout_buf.getvalue(),
+        stderr=stderr_buf.getvalue()
     )
 
 

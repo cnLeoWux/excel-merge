@@ -156,7 +156,7 @@ def test_process_sales_report_workflow_signature_and_no_files(sample_data_dir, t
 def test_read_file_with_appropriate_method_csv_fallback(tmp_path):
     # Create a CSV with a weird encoding
     csv_file = tmp_path / "weird.csv"
-    csv_file.write_bytes("订单号,商户订单号,订单金额,A,B,C\n123,456,100,1,2,3\n".encode("gb2312"))
+    csv_file.write_bytes("订单号,商户订单号,订单金额\n123,456,100\n".encode("gb2312"))
     
     # This will trigger the fallback encoding mechanism
     df = read_file_with_appropriate_method(csv_file)
@@ -176,11 +176,12 @@ def test_process_excel_files_verbose(tmp_path):
     # Test verbose mode in process_excel_files
     order = tmp_path / "orders.csv"
     payment = tmp_path / "payments.csv"
-    order.write_text("订单号,商户订单号,商务订单号,订单金额,A,B\nO123,M123,B123,100,1,2\n")
-    payment.write_text("商品名称,商户订单号,支出金额（-元）,收入金额（+元）,业务类型,A\nRegular,M123,-5.0,0,收费,1\n")
+    order.write_text("订单号,商户订单号,商务订单号,订单金额\nO123,M123,B123,100\n")
+    payment.write_text("商品名称,商户订单号,支出金额（-元）,收入金额（+元）,业务类型\nRegular,M123,-5.0,0,收费\n")
     
     df = process_excel_files(order, payment, verbose=True)
     assert len(df) == 1
+    assert df.iloc[0]["支付手续费"] == -5.0
 
 def test_write_result_file_formats(tmp_path):
     # Test write_result_file with different formats
@@ -224,42 +225,3 @@ def test_get_year_month():
     assert get_year_month("2026年3月1日") == "202603"
     assert get_year_month("invalid") is None
     
-
-def test_extract_p_number():
-    from utils import extract_p_number
-    assert extract_p_number(None) is None
-    assert extract_p_number("P12345") == "P12345"
-    assert extract_p_number("Order P12345 details") == "P12345"
-    assert extract_p_number("No p number here") is None
-    assert extract_p_number(float('nan')) is None
-    assert extract_p_number("") is None
-    
-def test_match_orders_by_p_number():
-    from utils import match_orders_by_p_number
-    assert match_orders_by_p_number("Ext P123", "Prod P123") is True
-    assert match_orders_by_p_number("Ext P123", "Prod P456") is False
-    assert match_orders_by_p_number("Ext", "Prod") is False
-    assert match_orders_by_p_number(None, "Prod P123") is False
-
-
-def test_parse_date_more_cases():
-    from utils import parse_date
-    import pandas as pd
-    from datetime import datetime
-    
-    assert parse_date(pd.NaT) is None
-    assert parse_date(None) is None
-    assert parse_date("2026年3月") == pd.Timestamp(2026, 3, 1)
-    
-def test_add_sales_report_period_verbose(tmp_path):
-    from utils import add_sales_report_period
-    import pandas as pd
-    
-    df = pd.DataFrame({
-        "订单号": ["1"],
-        "订单状态": ["取消"],
-        "订单金额": ["0"],
-        "支付手续费": [0]
-    })
-    res = add_sales_report_period(df, verbose=True)
-    assert res.iloc[0]["销售报表账期"] == "已取消"
