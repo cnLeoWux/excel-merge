@@ -304,11 +304,9 @@ werkzeug>=2.0.0
 
 ### Code Quality
 - **Bare/broad exception handlers** throughout utils.py (lines 104, 140, 161, 562, 706, 713), check_csv.py, debug_csv.py — catches `SystemExit`/`KeyboardInterrupt`, hides bugs
-- **`on_bad_lines="skip"`** silently drops malformed CSV rows
 - **`readlines()` to count comment lines** (utils.py L57-58) — reads entire file into memory
 - **Magic number `[:20]`** for order number truncation — should be a named constant
-- **`df.shape[1] > 5`** as read-success heuristic — arbitrary threshold
-- **`astype(str)` on columns** can convert NaN to literal string `"nan"`
+- **`astype(str)` on columns** can convert NaN to literal string `"nan"` (mitigated by `fillna("")` and `dtype=str`)
 - **print-based logging** instead of `logging` module (utils.py imports logging but uses print)
 - **In-place file overwrite by default** — risky for production data
 

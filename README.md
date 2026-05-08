@@ -9,6 +9,7 @@ Excel Merge Tool matches order Excel/CSV files with payment/refund files to popu
 - **Multi-tier matching**: 20-char exact match → P-number pattern → hyphen fallback
 - **Business type validation**: Regular orders (收费/服务费) vs refund orders (退费/退款)
 - **File format support**: Excel (.xlsx, .xls) and CSV with automatic encoding detection
+- **Robust CSV parsing**: Safely handles long numbers, protective prefixes (like `="123"`), and malformed rows (`on_bad_lines="warn"`)
 - **Encoding fallback**: gbk → utf-8 → gb2312 → latin-1 → utf-8-sig
 - **4 entry modes**: Interactive, CLI, Flask API, console scripts
 - **Sales report workflow**: Period marking (全退/已取消) and monthly report generation

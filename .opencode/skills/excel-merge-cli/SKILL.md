@@ -12,7 +12,7 @@ metadata:
 Use this skill when the user wants to merge Excel/CSV files in Feishu:
 
 1. **Two files uploaded** → Match order file with payment/refund file, fill in `支付手续费` column
-2. **With --month flag** → Also run sales report workflow, marking `销售报表账期` column
+2. **With target_month argument** → Also run sales report workflow, marking `销售报表账期` column
 3. **Send result back** → Upload the processed file to the Feishu chat
 
 > **In-place contract**: The CLI writes results back to the original order file. For Feishu workflow, we create a temporary copy to preserve the original, then send the processed copy to chat.
@@ -82,7 +82,11 @@ elif "Excel" in file_type and not saved_path.endswith((".xlsx", ".xls")):
     saved_path = new_path
 ```
 
-### 3. CLI 执行使用绝对路径
+
+### 3. Native CSV Robustness
+The application natively handles CSV edge cases (like `="1234"` prefixes, long integer float coercion, and bad lines). However, **you must ensure the file has a `.csv` extension** so the CSV engine is triggered.
+
+### 4. CLI 执行路径与解释器
 
 **问题**：
 - exec preflight 阻止 `cd && python` 组合命令
@@ -98,7 +102,7 @@ elif "Excel" in file_type and not saved_path.endswith((".xlsx", ".xls")):
 cd /path/to/excel-merge && python cli.py ...
 ```
 
-### 4. 文件发送到群组
+### 5. 文件发送到群组
 
 **方案 A**：使用 message 工具的 buffer 参数发送 base64 文件
 ```python
@@ -188,7 +192,7 @@ for fm in file_messages:
 ### Step 3: 执行 CLI
 
 ```bash
-CLI_PATH="/Users/leowu-macmini/.openclaw/workspace-coding/excel-merge/cli.py"
+CLI_PATH="$(pwd)/cli.py"  # Ensure execution from the project root
 
 /usr/bin/python3 $CLI_PATH $order_path $payment_path 202603 --match-only --json --quiet
 ```
@@ -288,7 +292,7 @@ message(
 
 ```bash
 # CLI 路径
-CLI_PATH="/Users/leowu-macmini/.openclaw/workspace-coding/excel-merge/cli.py"
+CLI_PATH="$(pwd)/cli.py"  # Ensure execution from the project root
 
 # 执行合并（仅匹配）
 /usr/bin/python3 $CLI_PATH order.xlsx payment.csv 202603 --match-only --json --quiet
