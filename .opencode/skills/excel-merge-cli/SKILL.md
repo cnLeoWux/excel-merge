@@ -4,7 +4,7 @@ description: Run the excel-merge CLI to match order files with payment/refund fi
 license: MIT
 metadata:
   author: excel-merge
-  version: "3.0"
+  version: "3.1"
 ---
 
 # Excel Merge CLI Skill (Feishu Optimized)
@@ -27,68 +27,187 @@ Trigger this skill when:
 - User mentions "销售报表" / "标注账期"
 - Files are in `ExcelForHandel/` folder
 
-**Typical Feishu workflow:**
-1. User uploads `order.xlsx` (订单文件)
-2. User uploads `payment.xlsx` (支付/退款文件)
-3. You download both files
-4. Run `excel-merge-cli` on them
-5. Send the processed `order.xlsx` back to chat
-
 ---
 
-## Feishu Workflow Steps
+## ⚠️ Critical Implementation Notes
 
-### Step 1: Receive Files
-When user uploads files to Feishu:
-- Files are automatically saved to `/tmp/openclaw/` with unique names
-- File info includes `file_key` for downloading
+### 1. 获取正确的 message_id（文件消息，而非请求消息）
 
-### Step 2: Download Files
-Use `feishu_im_bot_image` to download uploaded files:
+**错误做法**：直接使用合并请求的 message_id 调用 feishu_im_bot_image
+**正确做法**：先调用 `feishu_im_user_get_messages` 获取最近消息，识别文件消息的 message_id
+
 ```python
-# For each uploaded file
-feishu_im_bot_image(
+# Step 1: 获取最近消息列表
+messages = feishu_im_user_get_messages(
+    chat_id="oc_xxx",
+    page_size=10,
+    sort_rule="create_time_desc"
+)
+
+# Step 2: 找到文件消息（msg_type == "file"）
+for msg in messages["messages"]:
+    if msg["msg_type"] == "file":
+        # 解析 content 获取 file_key 和文件名
+        # content 格式: <file key="file_v3_xxx" name="文件名.xlsx"/>
+        message_id = msg["message_id"]
+        file_key = parse_file_key(msg["content"])
+```
+
+### 2. CSV 文件必须添加 .csv 扩展名
+
+**问题**：飞书下载的文件可能没有扩展名，导致 CLI 把 CSV 当 Excel 处理
+**解决**：下载后检查并添加正确的扩展名
+
+```python
+# 下载文件
+result = feishu_im_bot_image(
     message_id=message_id,
     file_key=file_key,
-    type="file"  # or "image" for screenshots
+    type="file"
+)
+
+saved_path = result["saved_path"]
+
+# 检查文件类型并添加扩展名
+import subprocess
+file_type = subprocess.run(["file", saved_path], capture_output=True, text=True).stdout
+
+if "CSV" in file_type or "text" in file_type and not saved_path.endswith(".csv"):
+    new_path = saved_path + ".csv"
+    os.rename(saved_path, new_path)
+    saved_path = new_path
+elif "Excel" in file_type and not saved_path.endswith((".xlsx", ".xls")):
+    new_path = saved_path + ".xlsx"
+    os.rename(saved_path, new_path)
+    saved_path = new_path
+```
+
+### 3. CLI 执行使用绝对路径
+
+**问题**：
+- exec preflight 阻止 `cd && python` 组合命令
+- 系统只有 `python3` 没有 `python`
+
+**解决**：使用 `/usr/bin/python3` 绝对路径，单独执行
+
+```bash
+# 正确方式
+/usr/bin/python3 /path/to/excel-merge/cli.py order.xlsx payment.csv 202603 --match-only --json --quiet
+
+# 错误方式（会被 exec preflight 阻止）
+cd /path/to/excel-merge && python cli.py ...
+```
+
+### 4. 文件发送到群组
+
+**方案 A**：使用 message 工具的 buffer 参数发送 base64 文件
+```python
+import base64
+file_content = base64.b64encode(open(processed_file, "rb").read()).decode()
+
+message(
+    action="send",
+    channel="feishu",
+    target="oc_xxx",  # 群组 ID
+    filename="订单数据_已合并.xlsx",
+    mimeType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    buffer=f"data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,{file_content}"
 )
 ```
 
-### Step 3: Identify File Types
+**方案 B**：上传到云空间后分享
+```python
+# 上传到云空间
+upload_result = feishu_drive_file(
+    action="upload",
+    file_path=processed_file,
+    folder_token=""  # 我的空间根目录
+)
 
-**Order file** (订单文件) typically contains:
-- `订单号` column
-- `外部订单号` column
-- `订单金额` column
-- `商品名称` column (for P-number matching)
-
-**Payment file** (支付/退款文件) typically contains:
-- `商户订单号` or `商户`+`订单` columns
-- `支出金额（-元）` or `收入金额（+元）` column
-- Business type column (`收费`/`服务费`/`退费`/`退款`)
-
-> **Auto-detection**: If unsure which is which, check column names. Order file has `订单号`, payment file has `商户订单号`.
-
-### Step 4: Run CLI
-
-```bash
-# Basic match
-python cli.py /path/to/order.xlsx /path/to/payment.xlsx --json --quiet
-
-# With sales report workflow
-python cli.py /path/to/order.xlsx /path/to/payment.xlsx --month 202602 --json --quiet
+# 发送文件卡片到群组（需要 file_token）
+# 注意：目前 feishu_drive_file upload 返回结果可能不完整
 ```
 
-### Step 5: Send Result Back
+---
 
-Use `feishu_im_user_message` to send the processed file:
+## Feishu Workflow Steps (完整流程)
+
+### Step 1: 获取文件消息列表
+
 ```python
-feishu_im_user_message(
+messages = feishu_im_user_get_messages(
+    chat_id=chat_id,
+    page_size=10,
+    sort_rule="create_time_desc"
+)
+
+file_messages = []
+for msg in messages["messages"]:
+    if msg["msg_type"] == "file":
+        # 解析 content: <file key="xxx" name="文件名"/>
+        import re
+        match = re.search(r'key="([^"]+)" name="([^"]+)"', msg["content"])
+        if match:
+            file_messages.append({
+                "message_id": msg["message_id"],
+                "file_key": match.group(1),
+                "file_name": match.group(2)
+            })
+```
+
+### Step 2: 下载文件并添加扩展名
+
+```python
+order_path = None
+payment_path = None
+
+for fm in file_messages:
+    result = feishu_im_bot_image(
+        message_id=fm["message_id"],
+        file_key=fm["file_key"],
+        type="file"
+    )
+    
+    saved_path = result["saved_path"]
+    
+    # 添加扩展名（如果缺失）
+    if fm["file_name"].endswith(".csv") and not saved_path.endswith(".csv"):
+        saved_path = saved_path + ".csv"
+        os.rename(result["saved_path"], saved_path)
+    elif fm["file_name"].endswith(".xlsx") and not saved_path.endswith(".xlsx"):
+        saved_path = saved_path + ".xlsx"
+        os.rename(result["saved_path"], saved_path)
+    
+    # 识别文件类型（订单 vs 支付）
+    if "订单" in fm["file_name"]:
+        order_path = saved_path
+    elif "账务" in fm["file_name"] or "明细" in fm["file_name"]:
+        payment_path = saved_path
+```
+
+### Step 3: 执行 CLI
+
+```bash
+CLI_PATH="/Users/leowu-macmini/.openclaw/workspace-coding/excel-merge/cli.py"
+
+/usr/bin/python3 $CLI_PATH $order_path $payment_path 202603 --match-only --json --quiet
+```
+
+### Step 4: 发送结果到群组
+
+```python
+# 方案 A：使用 message 工具的 buffer 参数
+import base64
+
+file_content = base64.b64encode(open(order_path, "rb").read()).decode()
+
+message(
     action="send",
-    msg_type="file",
-    content=json.dumps({"file_key": uploaded_file_key}),
-    receive_id_type="chat_id",
-    receive_id=chat_id
+    channel="feishu",
+    target=chat_id,
+    filename="订单数据_已合并.xlsx",
+    mimeType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    buffer=f"data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,{file_content}"
 )
 ```
 
@@ -100,30 +219,12 @@ feishu_im_user_message(
 |---|---|---|---|
 | `order_file` | yes | — | Order data file path |
 | `payment_file` | yes | — | Payment/refund file path |
-| `--month YYYYMM` | no | `None` | Trigger sales report workflow |
-| `--json` | no | `False` | Emit JSON output (recommended for automation) |
+| `target_month` | no | — | 月份 (YYYYMM)，必须提供才能使用 --match-only |
+| `--match-only` | no | — | 仅执行匹配（需要 target_month） |
+| `--mark-only` | no | — | 仅执行标注（需要 target_month） |
+| `--json` | no | `False` | Emit JSON output |
 | `--quiet` | no | `False` | Suppress progress logs |
-
----
-
-## Canonical Invocations
-
-### Basic Match (Feishu workflow)
-```bash
-# Create temp copy to preserve original
-cp /tmp/openclaw/order.xlsx /tmp/openclaw/order_processed.xlsx
-
-# Run CLI
-python cli.py /tmp/openclaw/order_processed.xlsx /tmp/openclaw/payment.xlsx --json --quiet
-
-# Result is in order_processed.xlsx, ready to send back
-```
-
-### Sales Report Workflow
-```bash
-cp /tmp/openclaw/order.xlsx /tmp/openclaw/order_processed.xlsx
-python cli.py /tmp/openclaw/order_processed.xlsx /tmp/openclaw/payment.xlsx --month 202602 --json --quiet
-```
+| `-v` / `-vv` | no | — | 详细日志模式 |
 
 ---
 
@@ -159,106 +260,41 @@ python cli.py /tmp/openclaw/order_processed.xlsx /tmp/openclaw/payment.xlsx --mo
 
 ---
 
-## Feishu-Specific Implementation
-
-### Complete Workflow Example
-
-```python
-import json
-from pathlib import Path
-
-# 1. Files are uploaded to Feishu, get their paths
-order_path = "/tmp/openclaw/order_xxx.xlsx"
-payment_path = "/tmp/openclaw/payment_xxx.xlsx"
-
-# 2. Create processed copy
-import shutil
-processed_path = "/tmp/openclaw/order_processed.xlsx"
-shutil.copy(order_path, processed_path)
-
-# 3. Run CLI
-import subprocess
-result = subprocess.run(
-    [
-        "python", "cli.py",
-        processed_path,
-        payment_path,
-        "--json", "--quiet"
-    ],
-    capture_output=True,
-    text=True,
-    cwd="/path/to/excel-merge"
-)
-
-# 4. Parse result
-output = json.loads(result.stdout)
-if output["ok"]:
-    stats = output["data"]["statistics"]
-    print(f"✅ 匹配成功: {stats['matched_rows']}/{stats['total_rows']} ({stats['match_rate']})")
-    
-    # 5. Upload processed file back to Feishu
-    # (Use feishu_drive_file upload to get file_key, then send message)
-else:
-    print(f"❌ 错误: {output['error']['message']}")
-```
-
-### Sending File Back to Feishu Chat
-
-```python
-# Upload file to Feishu to get file_key
-feishu_drive_file(
-    action="upload",
-    file_path="/tmp/openclaw/order_processed.xlsx",
-    folder_token="your_folder_token"  # Optional
-)
-
-# Send file message
-feishu_im_user_message(
-    action="send",
-    msg_type="file",
-    content=json.dumps({"file_key": file_key}),
-    receive_id_type="chat_id",
-    receive_id="oc_xxx"  # Group chat ID
-)
-```
-
----
-
 ## Exit Codes & Error Handling
 
-| Code | Meaning | Feishu Response |
+| Code | Meaning | Action |
 |---|---|---|
-| 0 | Success | Send processed file + stats |
-| 1 | General error | Reply with error message |
-| 2 | Usage error | Check command syntax |
-| 3 | File not found | Ask user to re-upload |
-| 4 | Processing error | Check file format/columns |
+| 0 | Success | 发送文件 + 统计信息到群组 |
+| 1 | General error | 返回错误信息 |
+| 2 | Usage error | 检查命令参数 |
+| 3 | File not found | 重新下载文件 |
+| 4 | Processing error | 检查文件格式/扩展名 |
 
 ---
 
-## Common Pitfalls (Feishu Context)
+## Common Pitfalls
 
-- **File locked**: If user has order file open in Excel, writing will fail. Ask them to close it first.
-- **Wrong file order**: First arg must be order file, second is payment file. Auto-detect by column names if unsure.
-- **CSV encoding**: Auto-detected (gbk → utf-8 → gb2312 → latin-1 → utf-8-sig)
-- **20-char truncation**: Order numbers are matched by first 20 chars only
-- **P-number case-sensitive**: Must be uppercase `P\d+`, lowercase won't match
+| 问题 | 原因 | 解决方案 |
+|---|---|---|
+| `BadZipFile: File is not a zip file` | CSV 文件无 `.csv` 扩展名，被当作 Excel 处理 | 下载后添加 `.csv` 扩展名 |
+| `command not found: python` | 系统只有 `python3` | 使用 `/usr/bin/python3` |
+| `exec preflight: complex interpreter invocation` | `cd && python` 组合命令 | 单独执行，不组合 |
+| `Bot is NOT the owner of the resource` | 使用用户的 file_key 发送文件 | 上传新文件获取新的 file_key |
+| `请输入目标月份` | 未提供 target_month 参数 | 提供 `202603` 格式的月份参数 |
 
 ---
 
 ## Quick Reference
 
 ```bash
-# Help
-python cli.py --help
+# CLI 路径
+CLI_PATH="/Users/leowu-macmini/.openclaw/workspace-coding/excel-merge/cli.py"
 
-# Basic match (Feishu optimized)
-cp order.xlsx order_processed.xlsx
-python cli.py order_processed.xlsx payment.xlsx --json --quiet
+# 执行合并（仅匹配）
+/usr/bin/python3 $CLI_PATH order.xlsx payment.csv 202603 --match-only --json --quiet
 
-# Sales report
-cp order.xlsx order_processed.xlsx
-python cli.py order_processed.xlsx payment.xlsx --month 202602 --json --quiet
+# 执行完整工作流（匹配 + 标注 + 日期筛选）
+/usr/bin/python3 $CLI_PATH order.xlsx payment.csv 202603 --json --quiet
 ```
 
 ---
@@ -274,23 +310,7 @@ python cli.py order_processed.xlsx payment.xlsx --month 202602 --json --quiet
    • 成功匹配：{matched_rows}
    • 匹配率：{match_rate}
 
-📎 已处理文件已上传
-```
-
-**With sales report:**
-```
-✅ Excel 合并 + 销售报表标注完成！
-
-📊 匹配统计：
-   • 总订单数：{total_rows}
-   • 成功匹配：{matched_rows}
-   • 匹配率：{match_rate}
-
-📝 销售报表：
-   • 目标月份：{month}
-   • 已标注账期信息
-
-📎 已处理文件已上传
+📎 已处理文件已发送到群组
 ```
 
 **Error response:**
@@ -301,5 +321,4 @@ python cli.py order_processed.xlsx payment.xlsx --month 202602 --json --quiet
    • 文件格式是否正确 (.xlsx/.xls/.csv)
    • 订单文件是否包含"订单号"列
    • 支付文件是否包含"商户订单号"列
-   • 文件是否被其他程序占用
 ```
