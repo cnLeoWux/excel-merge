@@ -326,7 +326,9 @@ def process_excel_files(
                     break
 
         if business_order_col:
-            business_order_numbers = payment_df[business_order_col].fillna("").astype(str)
+            business_order_numbers = (
+                payment_df[business_order_col].fillna("").astype(str).str.strip('="\t ')
+            )
             exact_matches = business_order_numbers.str[:20] == order_no
             exact_match_rows = payment_df[exact_matches]
 
