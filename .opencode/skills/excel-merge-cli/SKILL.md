@@ -4,7 +4,7 @@ description: Run the excel-merge CLI to match order files with payment/refund fi
 license: MIT
 metadata:
   author: excel-merge
-  version: "3.1"
+  version: "3.2"
 ---
 
 # Excel Merge CLI Skill (Feishu Optimized)
@@ -12,8 +12,10 @@ metadata:
 Use this skill when the user wants to merge Excel/CSV files in Feishu:
 
 1. **Two files uploaded** → Match order file with payment/refund file, fill in `支付手续费` column
-2. **With target_month argument** → Also run sales report workflow, marking `销售报表账期` column
-3. **Send result back** → Upload the processed file to the Feishu chat
+2. **Auto-detect month from filename** → Extract YYYYMM pattern (e.g., 202603 from filename)
+3. **Confirm with user** → Ask user to verify detected month before processing
+4. **With target_month argument** → Also run sales report workflow, marking `销售报表账期` column
+5. **Send result back** → Upload the processed file to the Feishu chat
 
 > **In-place contract**: The CLI writes results back to the original order file. For Feishu workflow, we create a temporary copy to preserve the original, then send the processed copy to chat.
 
@@ -204,15 +206,45 @@ for fm in file_messages:
         payment_path = saved_path
 ```
 
-### Step 3: 执行 CLI
+### Step 3: 自动识别并确认月份
+
+```python
+# 从文件名自动提取月份
+import re
+
+month_pattern = re.search(r'20\d{4}', payment_file_name)
+if month_pattern:
+    target_month = month_pattern.group()
+else:
+    # 文件名无月份，询问用户
+    target_month = ask_user_for_month()
+
+# 询问用户确认
+feishu_ask_user_question(
+    questions=[
+        {
+            "question": f"已自动识别月份为 {target_month}，是否正确？",
+            "header": "月份确认",
+            "options": [
+                {"label": "正确，继续", "description": "使用自动识别的月份"},
+                {"label": "错误，输入", "description": "手动输入正确的月份"}
+            ],
+            "multiSelect": False
+        }
+    ]
+)
+# 等待用户回复后再执行 CLI
+```
+
+### Step 4: 执行 CLI
 
 ```bash
 CLI_PATH="$(pwd)/cli.py"  # Ensure execution from the project root
 
-/usr/bin/python3 $CLI_PATH $order_path $payment_path 202603 --match-only --json --quiet
+/usr/bin/python3 $CLI_PATH $order_path $payment_path $target_month --match-only --json --quiet
 ```
 
-### Step 4: 发送结果到群组
+### Step 5: 发送结果到群组
 
 ```python
 # 方案 A：使用 message 工具的 buffer 参数
