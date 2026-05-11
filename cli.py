@@ -10,19 +10,16 @@ CLI 主入口 - Excel Merge Tool
 
 import json
 import logging
-import re
 import sys
-from datetime import datetime
 from pathlib import Path
 
-import pandas as pd
-
-from utils import (
-    add_sales_report_period,
-    auto_backup,
-    process_excel_files,
-    process_sales_report_workflow,
-    write_result_file,
+from utils import auto_backup
+from workflow_service import (
+    WorkflowError,
+    run_mark_only,
+    run_match_only,
+    run_sales_report,
+    validate_target_month_value,
 )
 
 # Exit codes
@@ -85,21 +82,7 @@ def validate_target_month(target_month: str) -> bool:
     Returns:
         bool: 验证是否通过
     """
-    # 检查是否正好6位数字
-    if not re.match(r'^\d{6}$', target_month):
-        return False
-
-    # 提取年月
-    year = int(target_month[:4])
-    month = int(target_month[4:])
-
-    # 检查范围
-    if not (2020 <= year <= 2099):
-        return False
-    if not (1 <= month <= 12):
-        return False
-
-    return True
+    return validate_target_month_value(target_month)
 
 
 def main_cli():
@@ -231,21 +214,9 @@ def main_cli():
         )
         sys.exit(EXIT_USAGE_ERROR)
 
-    # ==================== target_month 验证（如果提供）====================
-    if args.target_month is not None and not validate_target_month(args.target_month):
-        error_msg = "target_month 格式无效"
-        if not re.match(r'^\d{6}$', args.target_month):
-            error_msg = "target_month 必须是6位数字 (YYYYMM格式)"
-        elif len(args.target_month) == 6:
-            year = int(args.target_month[:4])
-            month = int(args.target_month[4:])
-            if not (2020 <= year <= 2099):
-                error_msg = f"target_month 年份必须在 2020-2099 之间 (收到: {args.target_month[:4]})"
-            elif not (1 <= month <= 12):
-                error_msg = f"target_month 月份必须在 01-12 之间 (收到: {args.target_month[4:]})"
-
+    if (args.match_only or args.mark_only) and args.target_month is not None and not validate_target_month(args.target_month):
         output_result(
-            error={"code": "usage_error", "message": error_msg},
+            error={"code": "usage_error", "message": "target_month 格式无效"},
             json_mode=args.json,
         )
         sys.exit(EXIT_USAGE_ERROR)
@@ -266,21 +237,6 @@ def main_cli():
         stream=sys.stderr,
     )
 
-    # ==================== 文件检查 ====================
-    if not Path(args.order_file).exists():
-        output_result(
-            error={"code": "file_not_found", "message": f"订单文件不存在: {args.order_file}"},
-            json_mode=args.json,
-        )
-        sys.exit(EXIT_FILE_NOT_FOUND)
-
-    if not Path(args.payment_file).exists():
-        output_result(
-            error={"code": "file_not_found", "message": f"支付文件不存在: {args.payment_file}"},
-            json_mode=args.json,
-        )
-        sys.exit(EXIT_FILE_NOT_FOUND)
-
     # 显示文件信息（非 JSON 非静默模式）
     if not args.json and not args.quiet:
         print(f"处理文件:")
@@ -290,7 +246,7 @@ def main_cli():
             print(f"  目标月份: {args.target_month}")
 
     # ==================== 自动备份 ====================
-    # 在做任何处理之前，先创建备份
+    # CLI 保持当前备份契约：适配器在调用 service 前创建备份；service 只负责写回协调。
     backup_path = auto_backup(args.order_file)
     if not args.json and not args.quiet:
         print(f"  备份已创建: {Path(backup_path).name}")
@@ -304,84 +260,33 @@ def main_cli():
             if not args.json and not args.quiet:
                 print(f"\n执行仅匹配模式...")
 
-            result_df = process_excel_files(
-                args.order_file, args.payment_file, verbose=verbose
-            )
+            result = run_match_only(args.order_file, args.payment_file, verbose=verbose)
+            stats = result.statistics or {}
 
-            # 统一就地写回订单文件；任何写入异常 → processing_error
-            import tempfile
-            import shutil
-            import os
-            try:
-                order_path = Path(args.order_file)
-                fd, tmp_path = tempfile.mkstemp(dir=order_path.parent, suffix=order_path.suffix)
-                os.close(fd)
-                write_result_file(result_df, Path(tmp_path))
-                shutil.move(tmp_path, order_path)
-    
-                # 计算统计
-                total_rows = len(result_df)
-                matched_rows = result_df["支付手续费"].notna().sum()
-                match_rate = f"{(matched_rows / total_rows * 100):.2f}%" if total_rows > 0 else "0.00%"
-    
-                if not args.json and not args.quiet:
-                    print(f"匹配完成: {int(matched_rows)}/{total_rows} ({match_rate})")
-    
-                output_result(
-                    data={
-                        "output_file": args.order_file,
-                        "statistics": {
-                            "total_rows": total_rows,
-                            "matched_rows": int(matched_rows),
-                            "match_rate": match_rate,
-                        },
-                    },
-                    json_mode=args.json,
+            if not args.json and not args.quiet:
+                print(
+                    f"匹配完成: {stats.get('matched_rows', 0)}/{stats.get('total_rows', 0)} "
+                    f"({stats.get('match_rate', '0.00%')})"
                 )
-    
-            except Exception as e:
-                if 'tmp_path' in locals() and os.path.exists(tmp_path):
-                    try: os.remove(tmp_path)
-                    except: pass
-                output_result(
-                    error={
-                        "code": "processing_error",
-                        "message": f"无法写回订单文件 '{args.order_file}': {e}",
-                    },
-                    json_mode=args.json,
-                )
-                sys.exit(EXIT_PROCESSING_ERROR)
+
+            output_result(
+                data={"output_file": result.output_file, "statistics": stats},
+                json_mode=args.json,
+            )
 
         elif args.mark_only:
             # 分支2: 仅标注
             if not args.json and not args.quiet:
                 print(f"\n执行仅标注模式...")
 
-            # 读取订单文件（用于标注）
-            from utils import read_file_with_appropriate_method
-            order_df = read_file_with_appropriate_method(args.order_file)
-
-            # 执行标注
-            marked_df = add_sales_report_period(order_df, verbose=verbose)
-
-            # 保存结果（覆盖原文件）
-            write_result_file(marked_df, Path(args.order_file))
-
-            # 计算统计
-            total_rows = len(marked_df)
-            marked_count = marked_df["销售报表账期"].notna().sum()
+            result = run_mark_only(args.order_file, verbose=verbose)
+            stats = result.statistics or {}
 
             if not args.json and not args.quiet:
-                print(f"标注完成: {int(marked_count)}/{total_rows} 行已标注")
+                print(f"标注完成: {stats.get('marked_rows', 0)}/{stats.get('total_rows', 0)} 行已标注")
 
             output_result(
-                data={
-                    "output_file": args.order_file,
-                    "statistics": {
-                        "total_rows": total_rows,
-                        "marked_rows": int(marked_count),
-                    },
-                },
+                data={"output_file": result.output_file, "statistics": stats},
                 json_mode=args.json,
             )
 
@@ -391,32 +296,19 @@ def main_cli():
             if not args.json and not args.quiet:
                 print(f"\n执行完整工作流（匹配+标注+日期筛选）...")
 
-            result_df, report_df = process_sales_report_workflow(
+            result = run_sales_report(
                 args.order_file, args.payment_file, args.target_month, verbose=verbose
             )
-
-            # 保存结果（覆盖原文件）
-            write_result_file(result_df, Path(args.order_file))
-
-            # 计算统计
-            total_rows = len(result_df)
-            matched_rows = result_df["支付手续费"].notna().sum()
-            match_rate = f"{(matched_rows / total_rows * 100):.2f}%" if total_rows > 0 else "0.00%"
-            marked_count = result_df["销售报表账期"].notna().sum()
+            stats = result.statistics or {}
 
             if not args.json and not args.quiet:
-                print(f"完成: 匹配 {int(matched_rows)}/{total_rows} ({match_rate}), 标注 {int(marked_count)} 行")
+                print(
+                    f"完成: 匹配 {stats.get('matched_rows', 0)}/{stats.get('total_rows', 0)} "
+                    f"({stats.get('match_rate', '0.00%')}), 标注 {stats.get('marked_rows', 0)} 行"
+                )
 
             output_result(
-                data={
-                    "output_file": args.order_file,
-                    "statistics": {
-                        "total_rows": total_rows,
-                        "matched_rows": int(matched_rows),
-                        "match_rate": match_rate,
-                        "marked_rows": int(marked_count),
-                    },
-                },
+                data={"output_file": result.output_file, "statistics": stats},
                 json_mode=args.json,
             )
 
@@ -425,35 +317,28 @@ def main_cli():
             if not args.json and not args.quiet:
                 print(f"\n执行仅匹配模式（无目标月份）...")
 
-            result_df = process_excel_files(
-                args.order_file, args.payment_file, verbose=verbose
-            )
-
-            # 保存结果（覆盖原文件）
-            write_result_file(result_df, Path(args.order_file))
-
-            # 计算统计
-            total_rows = len(result_df)
-            matched_rows = result_df["支付手续费"].notna().sum()
-            match_rate = f"{(matched_rows / total_rows * 100):.2f}%" if total_rows > 0 else "0.00%"
+            result = run_match_only(args.order_file, args.payment_file, verbose=verbose)
+            stats = result.statistics or {}
 
             if not args.json and not args.quiet:
-                print(f"匹配完成: {int(matched_rows)}/{total_rows} ({match_rate})")
+                print(
+                    f"匹配完成: {stats.get('matched_rows', 0)}/{stats.get('total_rows', 0)} "
+                    f"({stats.get('match_rate', '0.00%')})"
+                )
 
             output_result(
-                data={
-                    "output_file": args.order_file,
-                    "statistics": {
-                        "total_rows": total_rows,
-                        "matched_rows": int(matched_rows),
-                        "match_rate": match_rate,
-                    },
-                },
+                data={"output_file": result.output_file, "statistics": stats},
                 json_mode=args.json,
             )
 
         sys.exit(EXIT_SUCCESS)
 
+    except WorkflowError as e:
+        output_result(
+            error={"code": e.code, "message": e.message},
+            json_mode=args.json,
+        )
+        sys.exit(e.exit_code or EXIT_PROCESSING_ERROR)
     except Exception as e:
         output_result(
             error={"code": "processing_error", "message": str(e)},

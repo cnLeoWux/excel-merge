@@ -12,7 +12,7 @@ Excel Merge Tool — matches order Excel/CSV files with payment/refund files to 
 ```
 ./
 ├── utils.py                # Core business logic (~930 lines): matching, reading, writing, reporting
-├── cli.py                  # CLI entry (argparse): order_file payment_file [--month YYYYMM]
+├── cli.py                  # CLI entry (argparse): order_file payment_file [target_month]
 ├── excel_merge.py          # Interactive entry: file picker from ExcelForHandel/
 ├── excel_merge_api.py      # Flask API: /merge, /merge/json, /download/<file>, /health
 ├── setup.py                # Package config: console_scripts excel-merge & excel-merge-cli
@@ -38,8 +38,8 @@ pip install -e .                    # Editable install (enables console_scripts)
 
 # Run application
 python excel_merge.py                                           # Interactive mode
-python cli.py order.xlsx payment.xlsx                           # CLI basic match (in-place)
-python cli.py order.xlsx payment.xlsx --month 202602            # Sales report workflow (in-place)
+python cli.py order.xlsx payment.xlsx 202602                    # Sales report workflow (in-place)
+python cli.py order.xlsx payment.xlsx 202602 --match-only       # Match-only reduced workflow (in-place)
 python excel_merge_api.py                                       # Flask API on 0.0.0.0:5000
 
 # Console scripts (after pip install -e .)
@@ -66,26 +66,28 @@ python -m pytest -k "sales_report"    # Filter by keyword
 |-----------|------|---------|-------------|
 | `order_file` | str | *(required)* | Path to the order data file (.xlsx, .xls, .csv) |
 | `payment_file` | str | *(required)* | Path to the payment/refund data file (.xlsx, .xls, .csv) |
-| `--month` | str | `None` | Target month in `YYYYMM` format (e.g., `202602`); triggers the sales report workflow |
+| `target_month` | str | `None` | Positional target month in `YYYYMM` format (e.g., `202602`); triggers the full sales report workflow. If omitted in interactive text mode, the CLI prompts for it. |
+| `--match-only` | flag | `False` | Explicit reduced workflow: only match payment fees. Current CLI mode validation still requires `target_month`. |
+| `--mark-only` | flag | `False` | Explicit reduced workflow: only mark sales report periods. Current CLI mode validation still requires `target_month`. |
 | `--json` | flag | `False` | Output result as JSON envelope to stdout |
 | `--quiet` | flag | `False` | Suppress progress logs; only warnings and errors go to stderr |
 | `-v`, `--verbose` | count | `0` | Increase verbosity: `-v` = INFO, `-vv` = DEBUG |
 
-### Basic Matching Workflow
+### Match-only Reduced Workflow
 
 ```bash
-# Match payment fees and write back to order.xlsx in place
-python cli.py order.xlsx payment.xlsx
+# Explicitly match payment fees and write back to order.xlsx in place
+python cli.py order.xlsx payment.xlsx 202602 --match-only
 
 # Console script (after pip install -e .)
-excel-merge-cli order.xlsx payment.xlsx
+excel-merge-cli order.xlsx payment.xlsx 202602 --match-only
 ```
 
 Supported file formats: `.xlsx`, `.xls`, `.csv`. Encoding is auto-detected (gbk → utf-8 → gb2312 → latin-1 → utf-8-sig).
 
-### Sales Report Workflow (`--month`)
+### Sales Report Workflow (`target_month`)
 
-Triggered by `--month YYYYMM`. Two-phase processing, all writes go to the order file:
+Triggered by positional `target_month` (`YYYYMM`). Two-phase processing, all writes go to the order file:
 
 1. **Phase 1 — Match & Mark**: Run payment fee matching, then mark the 销售报表账期 column:
    - "全退": duplicate order numbers whose amounts sum to zero
@@ -94,14 +96,14 @@ Triggered by `--month YYYYMM`. Two-phase processing, all writes go to the order 
 
 ```bash
 # Sales report workflow (writes back to order.xlsx in place)
-python cli.py order.xlsx payment.xlsx --month 202602
+python cli.py order.xlsx payment.xlsx 202602
 ```
 
 Output: `order.xlsx` updated in place with both 支付手续费 and 销售报表账期 columns populated. No separate report file.
 
 ### JSON Output Format
 
-Use `--json` to get structured output. The envelope always has three top-level fields: `ok`, `data`, `error`. The shape of `data` is the same regardless of whether `--month` is passed.
+Use `--json` to get structured output. The envelope always has three top-level fields: `ok`, `data`, `error`. The shape of `data` is the same regardless of whether positional `target_month` is passed.
 
 **Success** (exit code 0):
 ```json
@@ -153,6 +155,12 @@ For AI Agents and automation scripts, use `--json --quiet` for clean machine-rea
 python cli.py order.xlsx payment.xlsx --json --quiet
 ```
 
+For the recommended full workflow, infer `target_month` from file names or context when possible; otherwise ask the user before running:
+
+```bash
+python cli.py order.xlsx payment.xlsx 202602 --json --quiet
+```
+
 **stdout/stderr separation**:
 - **stdout**: JSON envelope (with `--json`) or a single "订单文件已就地更新" summary line (text mode)
 - **stderr**: all logs, progress messages, warnings, and errors
@@ -199,7 +207,7 @@ else:
 | Sales report period | utils.py `add_sales_report_period()` L572 | Marks 全退 and 已取消 |
 | Monthly report filtering | utils.py `filter_unmarked_and_generate_report()` L743 | Filters by 出行日期 window; in-memory only, no file output |
 | Full sales workflow | utils.py `process_sales_report_workflow()` L887 | process → mark → filter (in place; no report file) |
-| CLI flags | cli.py `main_cli()` | `order_file`, `payment_file`, `--month`, `--json`, `--quiet`, `-v/-vv` |
+| CLI flags | cli.py `main_cli()` | `order_file`, `payment_file`, `target_month`, `--match-only`, `--mark-only`, `--json`, `--quiet`, `-v/-vv` |
 | Interactive file picker | excel_merge.py `main()` | Lists ExcelForHandel/ contents |
 | API endpoints | excel_merge_api.py | POST /merge, POST /merge/json, GET /download/\<f\> |
 | Package entry points | setup.py `entry_points` | excel-merge → excel_merge:main, excel-merge-cli → cli:main_cli |

@@ -59,15 +59,27 @@ excel-merge-cli order.xlsx payment.xlsx
 
 ```bash
 # 触发完整工作流：匹配 + 标注 + 在内存中筛选 + 就地回填 销售报表账期 列
-python cli.py order.xlsx payment.xlsx --month 202602
+python cli.py order.xlsx payment.xlsx 202602
 ```
 
-`--month` 触发完整销售报表工作流：
+位置参数 `target_month`（如 `202602`）触发完整销售报表工作流：
 1. 匹配支付手续费
 2. 标记"全退"和"已取消"订单
 3. 在内存中筛选出行日期在目标月份前后 1 年范围内的未标记数据
 4. 将 `销售报表YYYYMM` 回填到这些行的 `销售报表账期` 列，并就地写回订单文件
 5. **不**生成任何 `report_YYYYMM.xlsx` 文件
+
+### 显式 Reduced Workflow
+
+```bash
+# 仅匹配支付手续费（不执行销售报表筛选）
+python cli.py order.xlsx payment.xlsx 202602 --match-only
+
+# 仅标记销售报表账期（不匹配支付手续费）
+python cli.py order.xlsx payment.xlsx 202602 --mark-only
+```
+
+`--match-only` 和 `--mark-only` 是显式 reduced workflow；不要把缺失月份自动降级为 reduced workflow。自动化场景应优先从文件名/上下文推断 `target_month`，无法推断时询问用户。
 
 ### CLI 参数一览
 
@@ -75,7 +87,9 @@ python cli.py order.xlsx payment.xlsx --month 202602
 |------|------|--------|------|------|
 | `order_file` | str | *(必填)* | 订单数据文件路径（.xlsx, .xls, .csv） | 是 |
 | `payment_file` | str | *(必填)* | 支付流水文件路径（.xlsx, .xls, .csv） | 是 |
-| `--month` | str | `None` | 目标月份 `YYYYMM` 格式（如 `202602`），触发销售报表工作流 | 否 |
+| `target_month` | str | `None` | 位置参数。目标月份 `YYYYMM` 格式（如 `202602`），触发完整销售报表工作流 | 否 |
+| `--match-only` | flag | `False` | 显式 reduced workflow：仅匹配支付手续费。当前 CLI 模式仍需要提供 `target_month` | 否 |
+| `--mark-only` | flag | `False` | 显式 reduced workflow：仅标记销售报表账期。当前 CLI 模式仍需要提供 `target_month` | 否 |
 | `--json` | flag | `False` | 以 JSON 信封格式输出结果到 stdout | 否 |
 | `--quiet` | flag | `False` | 静默模式，仅输出警告和错误到 stderr | 否 |
 | `-v`, `--verbose` | count | `0` | 详细日志模式（-v=INFO, -vv=DEBUG） | 否 |
@@ -92,7 +106,7 @@ python cli.py order.xlsx payment.xlsx --month 202602
 
 ```bash
 # JSON 输出 + 静默模式（推荐用于自动化）
-python cli.py order.xlsx payment.xlsx --json --quiet
+python cli.py order.xlsx payment.xlsx 202602 --json --quiet
 
 # 输出示例：
 {
@@ -109,7 +123,7 @@ python cli.py order.xlsx payment.xlsx --json --quiet
 }
 ```
 
-无论是否传入 `--month`，`data` 的形状始终一致，仅含 `output_file`（等于订单文件路径）与 `statistics`，**不**包含 `report_file` / `report_rows` / `warnings` 字段。
+无论是否传入位置参数 `target_month`，`data` 的形状始终一致，仅含 `output_file`（等于订单文件路径）与 `statistics`，**不**包含 `report_file` / `report_rows` / `warnings` 字段。
 
 ### Error Handling
 

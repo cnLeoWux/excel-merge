@@ -297,6 +297,27 @@ class TestCLIExitCodes:
 
             assert result.returncode == 2
 
+    def test_match_only_invalid_month_is_usage_error(self):
+        """显式 reduced workflow 也拒绝无效 target_month"""
+        with data_generator() as gen:
+            order_file, payment_file = create_exact_match_scenario(gen)
+
+            result = subprocess.run(
+                [
+                    sys.executable, "cli.py",
+                    str(order_file), str(payment_file), "202613",
+                    "--match-only", "--json", "--quiet",
+                ],
+                capture_output=True,
+                text=True,
+                cwd=str(Path(__file__).parent.parent),
+            )
+
+            assert result.returncode == 2
+            output = json.loads(result.stdout)
+            assert output["ok"] is False
+            assert output["error"]["code"] == "usage_error"
+
 
 class TestCLIErrorHandling:
     """测试 CLI 错误处理"""

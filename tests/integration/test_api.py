@@ -122,6 +122,20 @@ def test_merge_json_with_sales_report(client, sample_data_dir):
     assert "report_rows" in body["statistics"]
 
 
+def test_merge_json_invalid_month_returns_400(client, sample_data_dir):
+    order = sample_data_dir / "orders.xlsx"
+    payment = sample_data_dir / "payments.csv"
+    resp = client.post(
+        "/merge/json",
+        data=_multipart(order, payment, month="202613"),
+        content_type="multipart/form-data",
+    )
+    assert resp.status_code == 400, resp.get_data(as_text=True)
+    body = resp.get_json()
+    assert body["success"] is False
+    assert "usage_error" in body["error"].lower() or "month" in body["error"].lower()
+
+
 def test_download_missing_file_returns_404(client):
     resp = client.get("/download/nonexistent_file.xlsx")
     assert resp.status_code == 404
@@ -154,6 +168,19 @@ def test_merge_endpoint_with_sales_report(client, sample_data_dir):
     cd = resp.headers.get("Content-Disposition", "")
     assert "attachment" in cd
     assert "report_202603.xlsx" in cd
+
+
+def test_merge_endpoint_invalid_month_returns_400(client, sample_data_dir):
+    order = sample_data_dir / "orders.xlsx"
+    payment = sample_data_dir / "payments.csv"
+    resp = client.post(
+        "/merge",
+        data=_multipart(order, payment, month="202613"),
+        content_type="multipart/form-data",
+    )
+    assert resp.status_code == 400, resp.get_data(as_text=True)
+    body = resp.get_json()
+    assert "month" in body.get("message", "").lower() or "usage" in body.get("error", "").lower()
 
 def test_merge_endpoint_empty_filename(client, tmp_path):
     import io

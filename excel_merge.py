@@ -13,14 +13,10 @@ import logging
 import sys
 from pathlib import Path
 
-import pandas as pd
-
-from utils import (
-    find_file_path,
-    process_excel_files,
-    process_sales_report_workflow,
-    read_file_with_appropriate_method,
-    write_result_file,
+from workflow_service import (
+    WorkflowError,
+    run_match_only,
+    run_sales_report,
 )
 
 # Exit codes
@@ -220,12 +216,12 @@ def main():
 
         # Ask for sales report generation
         while True:
-            run_sales_report = input("\nDo you want to generate a sales report? (y/n): ").lower().strip()
-            if run_sales_report in ['y', 'n']:
+            should_run_sales_report = input("\nDo you want to generate a sales report? (y/n): ").lower().strip()
+            if should_run_sales_report in ['y', 'n']:
                 break
             print("Invalid input. Please enter 'y' or 'n'.")
 
-        if run_sales_report == 'y':
+        if should_run_sales_report == 'y':
             while True:
                 month_str = input("Enter the report month (e.g., 202602): ").strip()
                 if len(month_str) == 6 and month_str.isdigit():
@@ -252,74 +248,44 @@ def main():
                 print(f"\n执行完整销售报表工作流...")
                 print(f"  目标月份: {args.month}")
 
-            updated_df, report_df = process_sales_report_workflow(
-                str(order_file_path),
-                str(payment_file_path),
+            result = run_sales_report(
+                order_file_path,
+                payment_file_path,
                 args.month,
                 verbose=verbose,
             )
 
-            # Always write in place to order file
-            write_result_file(updated_df, order_file_path)
-            result_file = str(order_file_path)
-
-            # Calculate statistics
-            total_rows = len(updated_df)
-            matched_rows = updated_df["支付手续费"].notna().sum()
-            match_rate = (
-                f"{(matched_rows / total_rows * 100):.2f}%"
-                if total_rows > 0
-                else "0.00%"
-            )
-
             if args.json:
                 output_result(
-                    data={
-                        "output_file": result_file,
-                        "statistics": {
-                            "total_rows": total_rows,
-                            "matched_rows": int(matched_rows),
-                            "match_rate": match_rate,
-                        },
-                    },
+                    data={"output_file": result.output_file, "statistics": result.statistics},
                     json_mode=True,
                 )
             elif not args.quiet:
-                print(f"\n原始文件已更新: {result_file}")
+                print(f"\n原始文件已更新: {result.output_file}")
         else:
             # Basic processing
-            result_df = process_excel_files(
-                str(order_file_path), str(payment_file_path), verbose=verbose
-            )
-
-            # Always write in place to order file
-            write_result_file(result_df, order_file_path)
-            result_file = str(order_file_path)
+            result = run_match_only(order_file_path, payment_file_path, verbose=verbose)
 
             # Calculate statistics for JSON output
             if args.json:
-                total_rows = len(result_df)
-                matched_rows = result_df["支付手续费"].notna().sum()
-                match_rate = (
-                    f"{(matched_rows / total_rows * 100):.2f}%"
-                    if total_rows > 0
-                    else "0.00%"
-                )
                 output_result(
-                    data={
-                        "output_file": result_file,
-                        "statistics": {
-                            "total_rows": total_rows,
-                            "matched_rows": int(matched_rows),
-                            "match_rate": match_rate,
-                        },
-                    },
+                    data={"output_file": result.output_file, "statistics": result.statistics},
                     json_mode=True,
                 )
             elif not args.quiet:
-                print(f"原始文件已更新: {result_file}")
+                print(f"原始文件已更新: {result.output_file}")
 
         sys.exit(EXIT_SUCCESS)
+
+    except WorkflowError as e:
+        output_result(
+            error={
+                "code": e.code,
+                "message": e.message,
+            },
+            json_mode=args.json,
+        )
+        sys.exit(e.exit_code or EXIT_PROCESSING_ERROR)
 
     except Exception as e:
         output_result(

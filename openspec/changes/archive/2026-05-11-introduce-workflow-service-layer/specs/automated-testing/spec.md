@@ -1,21 +1,7 @@
-## Purpose
-
-自动化测试能力 - 定义项目使用 `pytest` 作为测试框架的结构、覆盖范围与执行约定。该能力由 `tests/` 目录、`requirements-dev.txt` 与 `tests/conftest.py` 共享夹具实现，覆盖 `utils.py` 核心逻辑、`cli.py` 子进程入口与 `excel_merge_api.py` Flask 端点。
-
-## Requirements
-
-### Requirement: Test Framework and Structure
-The project MUST use `pytest` as its testing framework. All test files MUST be located in a new top-level `tests/` directory.
-
-#### Scenario: Test file structure
-- **WHEN** new tests are added
-- **THEN** they MUST be placed in files named `test_*.py` or `*_test.py` inside the `tests/` directory.
-
-#### Scenario: Development dependencies
-- **WHEN** setting up the development environment
-- **THEN** a `requirements-dev.txt` file MUST exist and contain `pytest`.
+## MODIFIED Requirements
 
 ### Requirement: Test Coverage
+
 The test suite MUST provide comprehensive coverage for core logic, workflow/service orchestration, entry points, and API endpoints.
 
 #### Scenario: Core logic unit tests
@@ -32,9 +18,8 @@ The test suite MUST provide comprehensive coverage for core logic, workflow/serv
   - Match-only service operation and statistics.
   - Mark-only service operation and statistics.
   - Full sales-report service operation and statistics.
-  - API-oriented service result metadata for downloadable artifacts in both month and no-month modes.
-  - Service-level error normalization for missing files, invalid months, and write/persistence failures.
-  - API report statistics including `report_rows` and full workflow statistics.
+  - API-oriented service result metadata for downloadable artifacts.
+  - Service-level error normalization.
 
 #### Scenario: CLI functional tests
 - **WHEN** running the test suite
@@ -52,23 +37,5 @@ The test suite MUST provide comprehensive coverage for core logic, workflow/serv
   - Start the Flask test server.
   - Send `POST` requests to `/merge` and `/merge/json` with and without the `month` parameter.
   - Verify API responses remain compatible after execution is routed through the workflow/service layer.
-  - Verify invalid API `month` values return HTTP 400 with API-shaped errors.
   - Verify the file content or JSON response is correct.
   - Verify the `/health` endpoint returns a 200 status code.
-
-#### Scenario: Documentation contract tests
-- **WHEN** running the test suite
-- **THEN** there MUST be tests or assertions that Agent/user-facing docs do not present `--month` as a current CLI parameter
-- **AND** docs MUST show positional `target_month` for full workflow examples
-- **AND** docs MUST describe `--match-only` as an explicit reduced workflow only
-
-### Requirement: Test Execution and Documentation
-The test suite MUST be easy to discover and run.
-
-#### Scenario: Running tests
-- **WHEN** a developer runs `pytest` from the project root
-- **THEN** all automated tests MUST be discovered and executed.
-
-#### Scenario: README documentation
-- **WHEN** a developer reads `README.md`
-- **THEN** it MUST contain a section explaining how to install development dependencies and run the test suite.

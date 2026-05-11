@@ -1,22 +1,8 @@
-## Purpose
-
-自动化测试能力 - 定义项目使用 `pytest` 作为测试框架的结构、覆盖范围与执行约定。该能力由 `tests/` 目录、`requirements-dev.txt` 与 `tests/conftest.py` 共享夹具实现，覆盖 `utils.py` 核心逻辑、`cli.py` 子进程入口与 `excel_merge_api.py` Flask 端点。
-
-## Requirements
-
-### Requirement: Test Framework and Structure
-The project MUST use `pytest` as its testing framework. All test files MUST be located in a new top-level `tests/` directory.
-
-#### Scenario: Test file structure
-- **WHEN** new tests are added
-- **THEN** they MUST be placed in files named `test_*.py` or `*_test.py` inside the `tests/` directory.
-
-#### Scenario: Development dependencies
-- **WHEN** setting up the development environment
-- **THEN** a `requirements-dev.txt` file MUST exist and contain `pytest`.
+## MODIFIED Requirements
 
 ### Requirement: Test Coverage
-The test suite MUST provide comprehensive coverage for core logic, workflow/service orchestration, entry points, and API endpoints.
+
+The test suite MUST provide comprehensive coverage for core logic, workflow/service orchestration, entry points, documentation contracts, and API endpoints.
 
 #### Scenario: Core logic unit tests
 - **WHEN** running the test suite
@@ -44,7 +30,7 @@ The test suite MUST provide comprehensive coverage for core logic, workflow/serv
   - CLI output remains compatible after execution is routed through the workflow/service layer.
   - Passing the removed flags `-o`/`--output`/`--output-dir` yields exit code 2.
   - The `--json` output is a valid JSON with the expected structure for the executed mode.
-  - Invalid arguments cause a non-zero exit code.
+  - Invalid arguments and service usage errors cause a non-zero exit code with the documented error envelope.
 
 #### Scenario: API integration tests
 - **WHEN** running the test suite
@@ -61,14 +47,3 @@ The test suite MUST provide comprehensive coverage for core logic, workflow/serv
 - **THEN** there MUST be tests or assertions that Agent/user-facing docs do not present `--month` as a current CLI parameter
 - **AND** docs MUST show positional `target_month` for full workflow examples
 - **AND** docs MUST describe `--match-only` as an explicit reduced workflow only
-
-### Requirement: Test Execution and Documentation
-The test suite MUST be easy to discover and run.
-
-#### Scenario: Running tests
-- **WHEN** a developer runs `pytest` from the project root
-- **THEN** all automated tests MUST be discovered and executed.
-
-#### Scenario: README documentation
-- **WHEN** a developer reads `README.md`
-- **THEN** it MUST contain a section explaining how to install development dependencies and run the test suite.

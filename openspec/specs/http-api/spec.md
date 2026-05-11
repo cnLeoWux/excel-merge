@@ -39,9 +39,14 @@ API MUST 校验上传文件的格式与大小，拒绝不合法请求并返回�
 - **THEN** 接受并继续处理
 
 #### Scenario: 不支持的格式
-- **WHEN** 上传文件扩展名不在白名单内
+- **WHEN** 客户端向 `/merge` 上传的文件扩展名不在白名单内
 - **THEN** 返回 HTTP 4xx 错误
 - **AND** 错误消息说明支持的格式
+
+#### Scenario: /merge/json 当前扩展名校验
+- **WHEN** 客户端向 `/merge/json` 上传文件
+- **THEN** 当前实现 MAY accept files without applying the same `allowed_file()` extension check used by `/merge`
+- **AND** downstream processing errors are returned as JSON errors
 
 #### Scenario: 文件大小上限
 - **WHEN** 上传文件总大小超过 16MB
@@ -74,21 +79,23 @@ API MUST 校验上传文件的格式与大小，拒绝不合法请求并返回�
 
 ### Requirement: JSON 响应格式
 
-`/merge/json` 端点 MUST 返回与 CLI `--json` 输出语义一致的 JSON 信封。
+`/merge/json` 端点 SHALL return the current API-specific JSON shape. This endpoint is not currently required to use the CLI `--json` envelope.
 
 #### Scenario: 成功响应
 - **WHEN** `/merge/json` 处理成功
-- **THEN** 响应 JSON 包含 `ok=true`、`data`（含 `output_file`、`download_url`、`statistics`）、`error=null`
+- **THEN** 响应 JSON 包含 `success=true`
+- **AND** 响应 JSON 包含 `session_id`、`download_url`、`statistics`、`files`
 - **AND** `download_url` 指向 `/download/<filename>`
+- **AND** 响应 JSON 不需要包含顶层 `ok`、`data` 或 `error` 字段
 
 #### Scenario: 失败响应
 - **WHEN** `/merge/json` 处理失败
-- **THEN** 响应 JSON 包含 `ok=false`、`data=null`、`error`（含 `code` 与 `message`）
+- **THEN** 响应 JSON 包含 `success=false` 和 `error` 字段，或在请求校验失败时包含 `error` 字段
 - **AND** HTTP 状态码反映错误类型（4xx 客户端错误，5xx 服务端错误）
 
 ### Requirement: 字符编码与 MIME 类型
 
-API MUST 在响应中正确声明字符编码与 MIME 类型，避免下载文件被错误识别。
+API SHALL return downloadable files as attachments. `/merge` currently uses the Excel OpenXML MIME type for all returned attachments, while `/download/<filename>` delegates MIME detection to Flask `send_file()`.
 
 #### Scenario: Excel 文件下载 MIME 类型
 - **WHEN** 下载 `.xlsx` 文件
@@ -96,7 +103,8 @@ API MUST 在响应中正确声明字符编码与 MIME 类型，避免下载文�
 
 #### Scenario: CSV 文件下载 MIME 类型
 - **WHEN** 下载 `.csv` 文件
-- **THEN** 响应 `Content-Type` 为 `text/csv; charset=utf-8`
+- **THEN** `/download/<filename>` SHOULD allow Flask to infer a CSV-compatible MIME type
+- **AND** `/merge` MAY still return the Excel OpenXML MIME type for backward compatibility
 
 #### Scenario: JSON 响应字符集
 - **WHEN** 任何 JSON 端点返回中文错误消息
@@ -110,7 +118,7 @@ The Flask API endpoints `/merge` and `/merge/json` MUST support triggering the s
 - **WHEN** a client sends a `POST` request to `/merge/json` with valid `order_file`, `payment_file`, and a `month` form parameter (e.g., "202602")
 - **THEN** the `process_sales_report_workflow` SHALL be executed.
 - **AND** the API layer SHALL persist the filtered report DataFrame to a downloadable file under `results/` (the workflow function itself does not write files).
-- **AND** the JSON response MUST include a `download_url` pointing to that file and a `statistics.report_rows` integer count. (This is the API's own response shape and is independent from the CLI JSON envelope, which since the `remove-output-file-option` change no longer carries `report_file`/`report_rows`.)
+- **AND** the JSON response MUST include `success=true`, a `download_url` pointing to that file, and a `statistics.report_rows` integer count. (This is the API's own response shape and is independent from the CLI JSON envelope, which does not carry `report_file`/`report_rows`.)
 
 #### Scenario: Trigger sales report via /merge
 - **WHEN** a client sends a `POST` request to `/merge` with valid `order_file`, `payment_file`, and a `month` form parameter.
@@ -121,3 +129,58 @@ The Flask API endpoints `/merge` and `/merge/json` MUST support triggering the s
 - **WHEN** a client sends a `POST` request to `/merge` or `/merge/json` without the `month` parameter.
 - **THEN** the standard matching workflow SHALL be executed.
 - **AND** the response SHALL NOT contain sales report artifacts.
+
+### Requirement: HTTP API routes use workflow service
+
+HTTP API merge routes MUST use the workflow/service layer for shared processing while preserving API request validation, response shape, and downloadable artifact behavior. The routes SHALL consume service-produced metadata instead of recomputing shared workflow statistics.
+
+#### Scenario: /merge without month uses API service
+- **WHEN** `/merge` receives valid uploaded order and payment files without `month`
+- **THEN** the route SHALL save uploads safely
+- **AND** it SHALL call the API-oriented matching workflow service operation
+- **AND** it SHALL return the service result file as an attachment
+
+#### Scenario: /merge with month uses API service
+- **WHEN** `/merge` receives valid uploaded order and payment files with `month`
+- **THEN** the route SHALL call the API-oriented sales-report workflow service operation
+- **AND** it SHALL return the generated report attachment when report data is produced
+
+#### Scenario: /merge/json without month uses API service
+- **WHEN** `/merge/json` receives valid uploaded order and payment files without `month`
+- **THEN** the route SHALL call the API-oriented matching workflow service operation
+- **AND** it SHALL format the service result using the documented API-specific `success` response shape
+
+#### Scenario: /merge/json with month uses API service
+- **WHEN** `/merge/json` receives valid uploaded order and payment files with `month`
+- **THEN** the route SHALL call the API-oriented sales-report workflow service operation
+- **AND** it SHALL format the service result using the documented API-specific response shape including `statistics.report_rows`
+
+#### Scenario: Invalid month service error
+- **WHEN** `/merge` or `/merge/json` receives valid uploaded order and payment files with an invalid `month`
+- **THEN** the workflow service SHALL raise `WorkflowError(code="usage_error")`
+- **AND** the route SHALL return HTTP 400
+- **AND** `/merge/json` SHALL return a JSON failure response with `success=false` and `error`
+
+### Requirement: HTTP adapter remains responsible for HTTP concerns
+
+`excel_merge_api.py` MUST remain responsible for Flask-specific concerns such as request parsing, upload field validation, `secure_filename()`, HTTP status codes, and `send_file()` responses.
+
+#### Scenario: Upload validation before service call
+- **WHEN** an API request is missing required files or has invalid filenames
+- **THEN** the API route SHALL return an HTTP error before calling the workflow service
+
+#### Scenario: HTTP response formatting after service call
+- **WHEN** the workflow service returns a successful API result
+- **THEN** the API route SHALL format that result as either a file attachment or API-specific JSON response
+
+#### Scenario: HTTP formatting of service usage error
+- **WHEN** the workflow service raises `WorkflowError(code="usage_error")`
+- **THEN** the API route SHALL map it to HTTP 400
+
+#### Scenario: HTTP formatting of service file-not-found error
+- **WHEN** the workflow service raises `WorkflowError(code="file_not_found")`
+- **THEN** the API route SHALL map it to HTTP 404
+
+#### Scenario: HTTP formatting of service processing error
+- **WHEN** the workflow service raises `WorkflowError(code="processing_error")`
+- **THEN** the API route SHALL map it to HTTP 500

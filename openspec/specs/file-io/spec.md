@@ -86,8 +86,14 @@ Excel 文件读取 MUST 根据扩展名与文件实际格式选择正确的引�
 - **AND** 使用 `utf-8-sig` 编码（兼容 Excel 中文显示）
 
 #### Scenario: Excel 写入保留 .xlsx
-- **WHEN** 原始文件为 `.xlsx` 或 `.xls`
-- **THEN** 输出文件为 `.xlsx`（统一使用 openpyxl 写入）
+- **WHEN** 原始文件路径扩展名为 `.xlsx`
+- **THEN** 使用 `openpyxl` 写入同一路径
+
+#### Scenario: .xls 写入尝试保留路径
+- **WHEN** 原始文件路径扩展名为 `.xls`
+- **THEN** `write_result_file()` SHALL attempt to write to the same `.xls` path
+- **AND** it MAY use `xlwt` when available or let pandas choose the writer engine
+- **AND** if the environment cannot write `.xls`, the function SHALL propagate the write error to the caller
 
 ### Requirement: 文件查找路径
 
@@ -105,4 +111,5 @@ Excel 文件读取 MUST 根据扩展名与文件实际格式选择正确的引�
 
 #### Scenario: 文件不存在
 - **WHEN** 当前目录和 `ExcelForHandel/` 均无该文件
-- **THEN** 返回 `None`（或调用方据此抛出 `file_not_found` 错误）
+- **THEN** 返回原始 `Path(filename)`
+- **AND** 调用方根据该路径不存在来报告 `file_not_found` 或其它可读错误

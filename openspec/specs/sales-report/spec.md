@@ -1,6 +1,6 @@
 ## Purpose
 
-销售报表能力 - 定义两阶段销售报表工作流：阶段一标注销售报表账期（全退/已取消），阶段二筛选未标注行并按出行日期窗口生成月度报表。该能力由 `utils.py` 中的 `add_sales_report_period()`、`filter_unmarked_and_generate_report()` 与 `process_sales_report_workflow()` 实现，通过 CLI `--month YYYYMM` 触发。
+销售报表能力 - 定义两阶段销售报表工作流：阶段一标注销售报表账期（全退/已取消），阶段二筛选未标注行并按出行日期窗口生成月度报表。该能力由 `utils.py` 中的 `add_sales_report_period()`、`filter_unmarked_and_generate_report()` 与 `process_sales_report_workflow()` 实现。当前 `cli.py` 通过可选位置参数 `target_month` 触发，`excel_merge.py` 通过 `--month` 或交互式月份输入触发。
 
 ## Requirements
 
@@ -53,15 +53,14 @@
 
 ### Requirement: 端到端工作流编排
 
-`process_sales_report_workflow()` MUST 编排完整两阶段流程：匹配支付手续费 → 标注账期 → 计算未标注的报表 DataFrame。工作流函数自身 MUST NOT 写入任何文件；它返回 `(updated_df, filtered_report_df)` 供调用方决定如何持久化。该工作流 MUST 可由 CLI、交互模式与 HTTP API 触发；CLI 与交互模式 MUST 将 `updated_df` 就地写回原始订单文件、不产生其它文件，HTTP API 的文件写入语义由 `http-api` capability 单独定义，本 capability 不约束。
+`process_sales_report_workflow()` MUST 编排完整流程：调用 `process_excel_files()` 获得已匹配并已标注账期的订单 DataFrame → 计算未标注的报表 DataFrame。工作流函数自身 MUST NOT 写入任何文件；它返回 `(updated_df, filtered_report_df)` 供调用方决定如何持久化。该工作流 MUST 可由 CLI、交互模式与 HTTP API 触发；CLI 与交互模式 MUST 将 `updated_df` 就地写回原始订单文件、不产生其它文件，HTTP API 的文件写入语义由 `http-api` capability 单独定义，本 capability 不约束。
 
 #### Scenario: 完整工作流执行顺序（CLI）
-- **WHEN** CLI 收到 `--month 202602` 参数
+- **WHEN** `cli.py` 收到位置参数 `target_month=202602`
 - **THEN** 依次执行：
-  1. `process_excel_files()` 完成支付手续费匹配
-  2. `add_sales_report_period()` 标注 `销售报表账期` 列
-  3. `filter_unmarked_and_generate_report()` 计算筛选 DataFrame（不落盘）
-  4. `write_result_file()` 将更新后的订单 DataFrame 就地写回原始订单文件
+  1. `process_sales_report_workflow()` 调用 `process_excel_files()` 完成支付手续费匹配，并依赖当前 `process_excel_files()` 内部调用 `add_sales_report_period()` 标注 `销售报表账期` 列
+  2. `filter_unmarked_and_generate_report()` 计算筛选 DataFrame（不落盘）并回填 `销售报表YYYYMM`
+  3. `write_result_file()` 将更新后的订单 DataFrame 就地写回原始订单文件
 - **AND** 任一步骤失败终止后续步骤并向调用方传播异常
 - **AND** 不在任何目录生成 `report_YYYYMM.xlsx` 等独立报表文件
 
@@ -72,7 +71,7 @@
 
 #### Scenario: 完整工作流执行顺序（API）
 - **WHEN** HTTP API 在 `/merge` 或 `/merge/json` 路由中以 `month` 参数触发该工作流
-- **THEN** 同样调用 `process_excel_files()` → `add_sales_report_period()` → `filter_unmarked_and_generate_report()`
+- **THEN** 同样调用 `process_sales_report_workflow()`，该函数当前通过 `process_excel_files()` 的内部账期标注副作用完成阶段一标注，然后调用 `filter_unmarked_and_generate_report()`
 - **AND** 工作流函数自身不写出任何文件
 - **AND** 后续的文件写入由 API 层处理（详见 `http-api` capability）
 
@@ -85,10 +84,30 @@
 #### Scenario: 月份格式校验
 - **WHEN** 任意入口传入的 `month` 参数不符合 `YYYYMM` 格式
 - **THEN** 处理过程 MUST 以错误终止
-- **AND** CLI 以退出码 4 退出
-- **AND** JSON 模式下 `error.code` 为 `"processing_error"`
+- **AND** `cli.py` 在参数验证阶段以退出码 2 退出
+- **AND** `cli.py` JSON 模式下 `error.code` 为 `"usage_error"`
 
 #### Scenario: 日期解析多格式支持
 - **WHEN** `出行日期` 列包含 `2026-02-15`、`2026/02/15`、`2026年2月15日` 等不同格式
-- **THEN** `parse_date()` 正确解析为 `pd.Timestamp`
-- **AND** 用于窗口筛选
+- **THEN** `parse_date()` 返回 `pd.Timestamp` 或 `None`
+- **AND** 中文 `YYYY年M月D日` 形式当前按年月解析并返回该月 1 日
+- **AND** `filter_unmarked_and_generate_report()` 当前使用 `pd.to_datetime(..., errors='coerce')` 解析筛选日期，而不是逐行调用 `parse_date()`
+
+### Requirement: Sales-report workflow service invocation
+
+Entry points MUST invoke the full sales-report workflow through the workflow/service layer while preserving the existing sales-report semantics.
+
+#### Scenario: Service delegates to existing sales-report workflow
+- **WHEN** the workflow service receives a full sales-report request
+- **THEN** it SHALL call the existing sales-report workflow implementation
+- **AND** it SHALL preserve the returned updated order DataFrame and filtered report DataFrame
+
+#### Scenario: CLI sales-report persistence through service
+- **WHEN** CLI invokes the full sales-report service operation
+- **THEN** the service SHALL write the updated order DataFrame back to the original order file
+- **AND** it SHALL not persist the filtered report DataFrame as a CLI report file
+
+#### Scenario: API sales-report persistence through service
+- **WHEN** API invokes the sales-report service operation
+- **THEN** the service SHALL make the filtered report DataFrame available for API result-file persistence
+- **AND** it SHALL return API metadata for a downloadable report artifact

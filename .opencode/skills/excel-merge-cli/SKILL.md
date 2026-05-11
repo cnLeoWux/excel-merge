@@ -13,7 +13,7 @@ Use this skill when the user wants to merge Excel/CSV files in Feishu:
 
 1. **Two files uploaded** → Match order file with payment/refund file, fill in `支付手续费` column
 2. **Auto-detect month from filename** → Extract YYYYMM pattern (e.g., 202603 from filename)
-3. **Confirm with user** → Ask user to verify detected month before processing
+3. **Confirm or ask user** → Use a reliably detected month; if no reliable month is found, ask the user before processing
 4. **With target_month argument** → Also run sales report workflow, marking `销售报表账期` column
 5. **Send result back** → Upload the processed file to the Feishu chat
 
@@ -85,10 +85,19 @@ elif "Excel" in file_type and not saved_path.endswith((".xlsx", ".xls")):
 ```
 
 
-### 3. Native CSV Robustness
+### 3. Default workflow requires target_month
+The default and preferred workflow is the full workflow: payment fee matching + sales report period marking + date-window marking. Therefore `target_month` is required for normal Skill execution.
+
+- First infer the month from filenames or conversation context.
+- If inference is reliable, use that month directly or briefly confirm when ambiguity exists.
+- If inference is not reliable, ask the user for the month before invoking the CLI.
+- Do not silently run `--match-only` just because the month is missing.
+- Only run `--match-only` when the user explicitly asks for matching-only/no sales report/no period marking.
+
+### 4. Native CSV Robustness
 The application natively handles CSV edge cases (like `="1234"` prefixes, long integer float coercion, and bad lines). However, **you must ensure the file has a `.csv` extension** so the CSV engine is triggered.
 
-### 4. CLI 执行路径与解释器
+### 5. CLI 执行路径与解释器
 
 **问题**：
 - exec preflight 阻止 `cd && python` 组合命令
@@ -104,7 +113,7 @@ The application natively handles CSV edge cases (like `="1234"` prefixes, long i
 cd /path/to/excel-merge && python cli.py ...
 ```
 
-### 5. 文件发送到群组
+### 6. 文件发送到群组
 
 **方案 A**：使用 message 工具的 buffer 参数发送 base64 文件
 ```python
@@ -253,8 +262,8 @@ message(
 |---|---|---|---|
 | `order_file` | yes | — | Order data file path |
 | `payment_file` | yes | — | Payment/refund file path |
-| `target_month` | no | — | 月份 (YYYYMM)，必须提供才能使用 --match-only |
-| `--match-only` | no | — | 仅执行匹配（需要 target_month） |
+| `target_month` | positional optional in argparse, required for default Skill workflow | — | 位置参数月份 (YYYYMM)。默认完整流程必须提供；缺失时先推断，无法推断则询问用户 |
+| `--match-only` | no | — | 显式降级：仅执行匹配（需要用户明确要求，且当前 CLI 仍需要 target_month） |
 | `--mark-only` | no | — | 仅执行标注（需要 target_month） |
 | `--json` | no | `False` | Emit JSON output |
 | `--quiet` | no | `False` | Suppress progress logs |
@@ -314,7 +323,7 @@ message(
 | `command not found: python` | 系统只有 `python3` | 使用 `/usr/bin/python3` |
 | `exec preflight: complex interpreter invocation` | `cd && python` 组合命令 | 单独执行，不组合 |
 | `Bot is NOT the owner of the resource` | 使用用户的 file_key 发送文件 | 上传新文件获取新的 file_key |
-| `请输入目标月份` | 未提供 target_month 参数 | 提供 `202603` 格式的月份参数 |
+| `请输入目标月份` | 未提供 target_month 参数 | 先从文件名/上下文推断；无法推断时询问用户并提供 `202603` 格式的月份参数 |
 
 ---
 
@@ -324,11 +333,11 @@ message(
 # CLI 路径
 CLI_PATH="$(pwd)/cli.py"  # Ensure execution from the project root
 
-# 执行合并（仅匹配）
-/usr/bin/python3 $CLI_PATH order.xlsx payment.csv 202603 --match-only --json --quiet
-
-# 执行完整工作流（匹配 + 标注 + 日期筛选）
+# 默认执行完整工作流（匹配 + 标注 + 日期筛选）
 /usr/bin/python3 $CLI_PATH order.xlsx payment.csv 202603 --json --quiet
+
+# 仅在用户明确要求“只匹配/不要账期/不要销售报表”时执行匹配-only
+/usr/bin/python3 $CLI_PATH order.xlsx payment.csv 202603 --match-only --json --quiet
 ```
 
 ---

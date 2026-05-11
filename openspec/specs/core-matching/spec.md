@@ -4,9 +4,19 @@
 
 ## Requirements
 
+### Requirement: Core matching side effects
+
+`process_excel_files()` MUST currently read both input files, populate `支付手续费`, and then call `add_sales_report_period()` before returning. Therefore its returned DataFrame includes or refreshes the `销售报表账期` column even when the caller requested only basic matching.
+
+#### Scenario: Basic matching also refreshes sales-report period
+- **WHEN** `process_excel_files(order_file, payment_file)` completes successfully
+- **THEN** the returned DataFrame contains a `支付手续费` column
+- **AND** the returned DataFrame contains a `销售报表账期` column
+- **AND** `销售报表账期` has been recalculated according to `add_sales_report_period()`
+
 ### Requirement: 多级匹配优先级
 
-匹配引擎 MUST 按固定优先级顺序尝试三种匹配策略，命中即停。匹配策略不得跳过、重排或并行。
+匹配引擎 MUST first try 20-character exact matching. If no exact candidate is accepted, the current fallback scan evaluates P-number matching and hyphen matching for each payment row in payment-file order, accepting the first row whose P-number OR hyphen match passes business type validation. This means P-number does not currently have global priority over a later hyphen match across the whole payment file.
 
 #### Scenario: 20 字符精确匹配优先
 - **WHEN** 订单行的 `订单号` 前 20 字符与某条支付记录的 `商户订单号` 前 20 字符相等
@@ -21,10 +31,16 @@
 - **THEN** 该支付记录被采纳
 
 #### Scenario: 连字符回退匹配
-- **WHEN** 精确匹配和 P-number 匹配均未命中
+- **WHEN** 20 字符精确匹配未命中
 - **AND** 订单行 `外部订单号` 中的某段（按 `-` 分割）与支付记录 `商品名称` 最后一个 `-` 后的段相等
 - **AND** 业务类型校验通过
-- **THEN** 该支付记录被采纳
+- **THEN** 在当前 payment 行扫描中该支付记录 MAY be accepted even if a later row would have matched by P-number
+
+#### Scenario: Fallback scan order
+- **WHEN** exact matching accepts no payment row
+- **AND** an earlier payment row matches by hyphen with valid business type
+- **AND** a later payment row matches by P-number with valid business type
+- **THEN** the earlier hyphen match is accepted because fallback matching is evaluated in payment-file order
 
 #### Scenario: 无匹配
 - **WHEN** 三种策略均未命中
