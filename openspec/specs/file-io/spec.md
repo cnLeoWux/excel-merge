@@ -1,12 +1,14 @@
 ## Purpose
 
-文件读写能力 - 定义 Excel/CSV 文件的读取容错策略、写入格式保留、订单号字符串保护与文件查找规则。该能力由 `utils.py` 中的 `read_file_with_appropriate_method()`、`write_result_file()` 与 `find_file_path()` 实现。
+文件读写能力 - 定义 Excel/CSV 文件的读取容错策略、写入格式保留、订单号字符串保护与文件查找规则。该能力由 `file_io.py` 承载核心实现，并通过 `utils.py` facade 向现有调用方保持兼容。
 
 ## Requirements
 
 ### Requirement: 编码自动回退
 
 CSV 文件读取 MUST 按固定顺序尝试多种编码，直到成功或全部失败。回退顺序不得改变（向后兼容）。
+
+该 fallback 顺序属于兼容契约，不只是实现细节。历史文件可能依赖某个较早编码“先成功”的行为，因此不能仅按更常见编码或更现代默认值重新排序。
 
 #### Scenario: GBK 编码优先
 - **WHEN** 读取一个 CSV 文件
@@ -18,6 +20,11 @@ CSV 文件读取 MUST 按固定顺序尝试多种编码，直到成功或全部�
 - **THEN** 依次尝试 `utf-8` → `gb2312` → `latin-1` → `utf-8-sig`
 - **AND** 顺序不得调整
 
+#### Scenario: 重构后的 reader 保持 fallback 顺序
+- **WHEN** CSV reading 通过 helper functions 或专用 `file_io.py` module 实现时
+- **THEN** helper/module SHALL 按相同文档顺序尝试 encodings
+- **AND** tests SHALL 能在不调用 CLI 或 HTTP API adapters 的情况下验证 fallback behaviour
+
 #### Scenario: 全部编码失败
 - **WHEN** 所有编码均无法成功解码 CSV 文件
 - **THEN** 抛出可读异常，包含尝试过的编码列表
@@ -26,6 +33,8 @@ CSV 文件读取 MUST 按固定顺序尝试多种编码，直到成功或全部�
 ### Requirement: CSV 分隔符自动检测
 
 读取 CSV 时 MUST 在每种编码下尝试多种分隔符，同时不能静默丢弃异常行。
+
+注释行跳过、分隔符尝试和异常行警告需要作为同一个 reader contract 维护。测试应覆盖“带注释头 + 非逗号分隔 + 中文编码”的组合场景，而不仅是单独 happy path。
 
 #### Scenario: 分隔符回退顺序
 - **WHEN** 某编码读取成功但 DataFrame 列数异常少（放宽至列数 >= 2 即算成功）
@@ -40,6 +49,12 @@ CSV 文件读取 MUST 按固定顺序尝试多种编码，直到成功或全部�
 #### Scenario: 异常行处理
 - **WHEN** CSV 行中包含多于或少于表头定义的字段数量
 - **THEN** 必须输出警告日志 (`on_bad_lines="warn"`)，而不能默默跳过 (`skip`)
+
+#### Scenario: CSV helpers 保持 adapter-independent
+- **WHEN** CSV reading helpers 被调用时
+- **THEN** they SHALL 返回 DataFrames 或抛出可读异常
+- **AND** they SHALL NOT 格式化 CLI JSON
+- **AND** they SHALL NOT 构造 HTTP responses
 
 ### Requirement: Excel 引擎检测
 
@@ -78,7 +93,7 @@ Excel 文件读取 MUST 根据扩展名与文件实际格式选择正确的引�
 
 ### Requirement: 文件格式保留写入
 
-`write_result_file()` MUST 根据原始文件扩展名选择写入格式，不得跨格式转换。
+`write_result_file()` MUST 在实现移至兼容 facade 后，保留原始文件扩展名和写入语义。It MUST 继续可从 `utils.py` 为现有调用方访问。
 
 #### Scenario: CSV 写入保留 CSV
 - **WHEN** 原始文件为 `.csv`
@@ -94,6 +109,11 @@ Excel 文件读取 MUST 根据扩展名与文件实际格式选择正确的引�
 - **THEN** `write_result_file()` SHALL attempt to write to the same `.xls` path
 - **AND** it MAY use `xlwt` when available or let pandas choose the writer engine
 - **AND** if the environment cannot write `.xls`, the function SHALL propagate the write error to the caller
+
+#### Scenario: 兼容 facade 保持 file I/O imports
+- **WHEN** 现有代码从 `utils.py` 导入 `read_file_with_appropriate_method`、`write_result_file` 或 `find_file_path`
+- **THEN** 在 file I/O implementation 拆分后，这些 imports SHALL 继续可用
+- **AND** 它们可观察到的文件格式与错误语义 SHALL 保持不变
 
 ### Requirement: 文件查找路径
 
@@ -113,3 +133,18 @@ Excel 文件读取 MUST 根据扩展名与文件实际格式选择正确的引�
 - **WHEN** 当前目录和 `ExcelForHandel/` 均无该文件
 - **THEN** 返回原始 `Path(filename)`
 - **AND** 调用方根据该路径不存在来报告 `file_not_found` 或其它可读错误
+
+### Requirement: File I/O implementation boundaries
+
+File reading、writing、path lookup、identifier-column normalization 以及 CSV/Excel fallback logic SHALL 与 matching、sales-report、CLI 和 HTTP adapter responsibilities 隔离。
+
+#### Scenario: File I/O module 不执行 matching
+- **WHEN** file I/O code 读取或写入 DataFrame 时
+- **THEN** it SHALL NOT 填充 `支付手续费`
+- **AND** it SHALL NOT 计算 `销售报表账期`
+- **AND** it SHALL NOT 对 payment business types 分类
+
+#### Scenario: Identifier normalization is centralized
+- **WHEN** CSV or Excel readers 加载包含 `订单` 或 `流水` 的列时
+- **THEN** identifier string preservation 和 cleanup SHALL 由共享 file I/O normalization logic 处理
+- **AND** matching code SHALL 在可能时接收已归一化的 identifier-like values

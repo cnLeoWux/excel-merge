@@ -1,17 +1,20 @@
 ## Purpose
 
-Workflow service 能力 - 定义应用级 workflow/service 层如何协调 `utils.py` 中已有的匹配、销售报表、文件写回、API 结果文件与统计构建逻辑，使 CLI、交互入口和 HTTP API 能共享编排行为而不重复业务流程。
+Workflow service 能力 - 定义应用级 workflow/service 层如何协调 `matching.py`、`file_io.py`、`sales_report.py` 与 `utils.py` facade 中的能力，使 CLI、交互入口和 HTTP API 能共享编排行为而不重复业务流程。
 
 ## Requirements
 
 ### Requirement: Workflow service 入口
 
-系统 MUST 提供 workflow/service 层，暴露仅匹配、仅标注、完整销售报表以及面向 API 的合并工作流的应用级操作，同时将现有业务规则委托给 `utils.py` 中的函数。
+系统 MUST 提供 workflow/service 层，暴露仅匹配、仅标注、完整销售报表以及面向 API 的合并工作流的应用级操作，同时通过稳定的 compatibility functions 将 business rules 委派给重构后的 core modules。
+
+说明：service 层是“编排边界”，不是新的业务算法层。它可以决定调用哪个 core workflow、何时写回文件、如何汇总统计和归一化错误；但不应内联 exact/P-number/hyphen 匹配或 CSV fallback 细节。
 
 #### Scenario: 仅匹配 workflow service
 - **WHEN** 入口点使用订单文件和支付文件调用仅匹配 service 操作
 - **THEN** service SHALL 执行现有的支付手续费匹配逻辑
 - **AND** service SHALL 返回包含输出文件路径、更新后的 DataFrame 与匹配统计的结构化结果
+- **AND** service SHALL NOT 在内联中重复 core matching algorithm
 
 #### Scenario: 仅标注 workflow service
 - **WHEN** 入口点使用订单文件调用仅标注 service 操作
@@ -30,7 +33,9 @@ Workflow service 能力 - 定义应用级 workflow/service 层如何协调 `util
 
 ### Requirement: Workflow 结果结构
 
-workflow/service 层 MUST 返回明确的结构化结果，而不是要求入口点从原始 DataFrame 重新计算统计或推断持久化输出。它还 MUST 在调用核心销售报表工作流前验证目标月份输入。
+workflow/service 层 MUST 返回明确的结构化结果，而不是要求入口点从原始 DataFrame 重新计算统计或推断持久化输出。It also MUST 在调用核心销售报表工作流前验证目标月份输入。
+
+集中的是统计公式和错误归一化，不是传输层格式。CLI 的 `ok/data/error` envelope 和 API 的既有响应 shape 仍分别由各自 adapter 负责。
 
 #### Scenario: CLI 兼容的 workflow 结果
 - **WHEN** CLI 或交互式入口点接收到 workflow 结果
@@ -62,6 +67,11 @@ workflow/service 层 MUST 返回明确的结构化结果，而不是要求入口
 - **THEN** 它 SHALL 抛出 `WorkflowError`，`code="processing_error"`
 - **AND** `exit_code` SHALL 为 4
 
+#### Scenario: Adapters consume service statistics
+- **WHEN** CLI、interactive mode 或 HTTP API 需要 workflow statistics 时
+- **THEN** 它 SHALL 使用 service result 或 service error mapping 中的 statistics
+- **AND** 它 SHALL NOT 独立重新计算共享公式
+
 ### Requirement: 统计计算集中化
 
 workflow/service 层 MUST 为共享工作流集中统计计算，避免入口点重复公式。
@@ -91,6 +101,8 @@ workflow/service 层 MUST 为共享工作流集中统计计算，避免入口点
 
 workflow/service 层 MUST 根据调用方适配器的契约协调回写或 API 结果文件持久化。
 
+workflow/service layer SHALL 继续作为 adapters 与 core modules 之间的 application orchestration boundary。CLI 和 HTTP output formatting MUST 保持在 adapters 中。
+
 #### Scenario: CLI 就地持久化
 - **WHEN** the CLI calls a service operation that writes results
 - **THEN** the service SHALL write the updated order DataFrame back to the original order file path
@@ -105,3 +117,18 @@ workflow/service 层 MUST 根据调用方适配器的契约协调回写或 API �
 - **WHEN** the API calls a service operation that writes results for download
 - **THEN** the service SHALL write the appropriate merged or report DataFrame under the configured API result directory
 - **AND** the service SHALL return metadata needed for `/download/<filename>`
+
+#### Scenario: CLI adapter owns CLI transport formatting
+- **WHEN** 某个 CLI request 成功完成或失败时
+- **THEN** `cli.py` SHALL 继续负责 stdout/stderr output、JSON envelope formatting 和 process exit codes
+- **AND** `workflow_service.py` SHALL 提供 structured results 或 normalized errors，而不是打印 CLI responses
+
+#### Scenario: HTTP adapter owns HTTP transport formatting
+- **WHEN** 某个 API request 成功完成或失败时
+- **THEN** `excel_merge_api.py` SHALL 继续负责 Flask response objects、HTTP status codes 和 API-specific JSON shape
+- **AND** `workflow_service.py` SHALL NOT 输出 Flask response objects
+
+#### Scenario: Core modules are invoked through service operations
+- **WHEN** CLI、interactive 或 API entry points 需要 matching 或 sales-report workflows 时
+- **THEN** they SHOULD 调用 workflow/service operations，而不是直接协调多个 core functions
+- **AND** 任何直接使用 core function 的行为 SHALL 保留已文档化的 adapter output contracts

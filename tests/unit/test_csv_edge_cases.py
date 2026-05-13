@@ -3,6 +3,21 @@ from utils import read_file_with_appropriate_method, process_excel_files
 import tempfile
 import os
 
+
+def test_csv_comment_lines_and_tab_separator_fallback():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        payment_path = os.path.join(tmpdir, "payment.csv")
+
+        with open(payment_path, "w", encoding="utf-8-sig") as f:
+            f.write("# comment\n")
+            f.write("商户订单号\t商品名称\t业务类型\t支出金额（-元）\n")
+            f.write('202602123456789012345\tTest\t收费\t-5.0\n')
+
+        df = read_file_with_appropriate_method(payment_path)
+        assert len(df) == 1
+        assert list(df.columns) == ["商户订单号", "商品名称", "业务类型", "支出金额（-元）"]
+        assert df.iloc[0]["商户订单号"] == "202602123456789012345"
+
 def test_csv_edge_cases():
     with tempfile.TemporaryDirectory() as tmpdir:
         order_path = os.path.join(tmpdir, "order.csv")

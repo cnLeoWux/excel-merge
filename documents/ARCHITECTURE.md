@@ -12,7 +12,7 @@ Excel Merge Tool 是一个订单数据与支付流水自动匹配工具。核心
 
 ### Entry Points
 
-系统提供 4 种入口方式。入口脚本通过 `workflow_service.py` 复用应用级编排，核心业务规则仍主要保留在 `utils.py`：
+系统提供 4 种入口方式。入口脚本通过 `workflow_service.py` 复用应用级编排，核心业务规则按职责拆分到 `file_io.py`、`matching.py`、`sales_report.py`；`utils.py` 保留为兼容 facade：
 
 | 入口 | 文件 | 说明 | 控制台命令 |
 |------|------|------|-----------|
@@ -25,33 +25,35 @@ Excel Merge Tool 是一个订单数据与支付流水自动匹配工具。核心
 
 ```
 excel_merge.py ──┐
-cli.py ──────────┤──→ workflow_service.py ──→ utils.py (核心业务逻辑, ~930 行)
-excel_merge_api.py┘              │                  │
-                                  │                  ↓
-                                  └────────→ pandas, openpyxl, xlrd, flask
+cli.py ──────────┤──→ workflow_service.py ──┬→ file_io.py
+excel_merge_api.py┘                         ├→ matching.py
+                                             └→ sales_report.py
+
+legacy imports ───────────────────────────────→ utils.py facade
 ```
 
-`workflow_service.py` 负责校验、编排、统计和错误归一化；入口脚本负责 CLI/HTTP/交互输出契约；`utils.py` 仍承载文件读取、匹配、销售报表和写回等核心实现。
+`workflow_service.py` 负责校验、编排、统计和错误归一化；入口脚本负责 CLI/HTTP/交互输出契约；核心实现已按文件 I/O、匹配、销售报表拆分。`utils.py` 继续导出旧函数名，保证历史调用方不需要一次性改 import。
 
 ---
 
-## Core Module: utils.py
+## Core Modules
 
 ### Public Functions
 
-| 函数 | 行号 | 职责 |
+| 模块 | 函数 | 职责 |
 |------|------|------|
-| `extract_p_number(text)` | L15 | 从字符串中提取 `r"P\d+"` 模式 |
-| `match_orders_by_p_number(ext_no, prod_name)` | L27 | 比较两个字段的 P-number 是否一致 |
-| `read_file_with_appropriate_method(file_path)` | L39 | CSV/Excel 统一读取，含编码回退链 |
-| `process_excel_files(order, payment, verbose)` | L189 | 主匹配循环：精确→P-number→连字符 |
-| `find_file_path(filename)` | L520 | 搜索当前目录和 `ExcelForHandel/` |
-| `write_result_file(df, file_path)` | L539 | 写入结果，保持原文件格式 |
-| `add_sales_report_period(order_df, verbose)` | L572 | 标记销售报表账期（全退、已取消） |
-| `parse_date(date_val)` | L687 | 多格式日期解析器 |
-| `get_year_month(date_val)` | L726 | 日期 → "YYYYMM" 字符串 |
-| `filter_unmarked_and_generate_report(...)` | L743 | 筛选未标记数据，生成月度报表 |
-| `process_sales_report_workflow(...)` | L887 | 编排完整销售报表工作流 |
+| `file_io.py` | `read_file_with_appropriate_method(file_path)` | CSV/Excel 统一读取，含编码/分隔符/引擎回退 |
+| `file_io.py` | `find_file_path(filename)` | 搜索当前目录和 `ExcelForHandel/` |
+| `file_io.py` | `write_result_file(df, file_path)` | 写入结果，保持原文件格式 |
+| `matching.py` | `extract_p_number(text)` | 从字符串中提取 `r"P\d+"` 模式 |
+| `matching.py` | `match_orders_by_p_number(ext_no, prod_name)` | 比较两个字段的 P-number 是否一致 |
+| `matching.py` | `process_excel_files(order, payment, verbose)` | 主匹配循环：exact 优先，fallback 按 payment 行顺序扫描 |
+| `sales_report.py` | `add_sales_report_period(order_df, verbose)` | 标记销售报表账期（全退、已取消） |
+| `sales_report.py` | `parse_date(date_val)` | 多格式日期解析器 |
+| `sales_report.py` | `get_year_month(date_val)` | 日期 → "YYYYMM" 字符串 |
+| `sales_report.py` | `filter_unmarked_and_generate_report(...)` | 筛选未标记数据，生成内存月报 DataFrame |
+| `sales_report.py` | `process_sales_report_workflow(...)` | 编排完整销售报表工作流 |
+| `utils.py` | 同名导出 | 兼容 facade，保持旧导入路径可用 |
 
 ## Service Layer: workflow_service.py
 

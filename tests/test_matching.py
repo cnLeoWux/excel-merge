@@ -83,6 +83,58 @@ class TestMatchOrdersByPNumber:
 class TestExactMatching:
     """测试精确匹配（20字符）"""
 
+    def test_exact_match_wins_over_fallback_candidates(self):
+        """存在精确匹配时，应优先于 P-number/连字符候选。"""
+        with data_generator() as gen:
+            orders = [{"订单号": "40250702110303185340xx", "外部订单号": "", "订单金额": 100.0}]
+            order_file = gen.create_order_file(orders)
+
+            payments = [
+                {
+                    "商户订单号": "40250702110303185340yy",
+                    "商品名称": "商品-HY12345",
+                    "业务类型": "收费",
+                    "支出金额（-元）": -9.99,
+                },
+                {
+                    "商户订单号": "NO_EXACT_MATCH",
+                    "商品名称": "商品-P2507021103060001",
+                    "业务类型": "收费",
+                    "支出金额（-元）": -8.88,
+                },
+            ]
+            payment_file = gen.create_payment_file(payments)
+
+            result_df = process_excel_files(str(order_file), str(payment_file), verbose=False)
+
+            assert result_df.iloc[0]["支付手续费"] == -9.99
+
+    def test_fallback_row_order_prefers_earlier_hyphen(self):
+        """无精确匹配时，较早的连字符匹配应优先于后续 P-number 匹配。"""
+        with data_generator() as gen:
+            orders = [{"订单号": "40250702110303185341xx", "外部订单号": "H12345", "订单金额": 100.0}]
+            order_file = gen.create_order_file(orders)
+
+            payments = [
+                {
+                    "商户订单号": "NO_EXACT_MATCH_1",
+                    "商品名称": "商品-H12345",
+                    "业务类型": "收费",
+                    "支出金额（-元）": -1.11,
+                },
+                {
+                    "商户订单号": "NO_EXACT_MATCH_2",
+                    "商品名称": "商品-P2507021103060001",
+                    "业务类型": "收费",
+                    "支出金额（-元）": -2.22,
+                },
+            ]
+            payment_file = gen.create_payment_file(payments)
+
+            result_df = process_excel_files(str(order_file), str(payment_file), verbose=False)
+
+            assert result_df.iloc[0]["支付手续费"] == -1.11
+
     def test_exact_match_same_first_20_chars(self):
         """订单号前20字符相同时应该匹配"""
         with data_generator() as gen:
@@ -237,6 +289,26 @@ class TestZeroAmountSkipping:
             assert fee == 0.0  # 零金额订单直接设为 0
 
 
+class TestSalesReportSideEffects:
+    def test_process_excel_files_retains_sales_report_period(self):
+        """process_excel_files 应继续返回带销售报表账期列的结果。"""
+        with data_generator() as gen:
+            orders = [
+                {"订单号": "FULL_REFUND_DUP_1", "外部订单号": "", "订单金额": 50.0, "订单状态": "已确认"},
+                {"订单号": "FULL_REFUND_DUP_1", "外部订单号": "", "订单金额": -50.0, "订单状态": "已确认"},
+                {"订单号": "CANCELLED_ZERO_1", "外部订单号": "", "订单金额": 0.0, "订单状态": "已取消"},
+            ]
+            order_file = gen.create_order_file(orders)
+            payment_file = gen.create_payment_file([])
+
+            result_df = process_excel_files(str(order_file), str(payment_file), verbose=False)
+
+            assert "销售报表账期" in result_df.columns
+            marks = result_df["销售报表账期"].tolist()
+            assert "全退" in marks
+            assert "已取消" in marks
+
+
 class TestMixedMatching:
     """测试混合匹配场景"""
 
@@ -251,19 +323,19 @@ class TestMixedMatching:
 
             # 检查每个订单的匹配结果
             for idx, row in result_df.iterrows():
-                order_no = row["订单号"]
+                order_no = row["订单号"].item() if hasattr(row["订单号"], "item") else row["订单号"]
                 expected_result = expected.get(order_no, {})
 
-                if expected_result.get("matched"):
+                if expected_result.get("matched", False) is True:
                     expected_fee = expected_result.get("fee")
                     if expected_fee == 0.0:
                         assert row["支付手续费"] == 0.0
                     else:
-                        assert row["支付手续费"] is not None and not pd.isna(row["支付手续费"])
+                        assert pd.notna(row["支付手续费"])
                 else:
                     # 无匹配
                     fee = row["支付手续费"]
-                    assert fee is None or pd.isna(fee)
+                    assert pd.isna(fee)
 
 
 class TestCSVSupport:

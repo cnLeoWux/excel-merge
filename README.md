@@ -2,7 +2,7 @@
 
 ## Overview
 
-Excel Merge Tool matches order Excel/CSV files with payment/refund files to populate the "支付手续费" (Payment Processing Fee) column. It also supports sales report period marking and monthly report generation.
+Excel Merge Tool matches order Excel/CSV files with payment/refund files to populate the "支付手续费" (Payment Processing Fee) column. It also supports sales report period marking and in-memory monthly report filtering.
 
 ## Features
 
@@ -12,8 +12,8 @@ Excel Merge Tool matches order Excel/CSV files with payment/refund files to popu
 - **Robust CSV parsing**: Safely handles long numbers, protective prefixes (like `="123"`), and malformed rows (`on_bad_lines="warn"`)
 - **Encoding fallback**: gbk → utf-8 → gb2312 → latin-1 → utf-8-sig
 - **4 entry modes**: Interactive, CLI, Flask API, console scripts
-- **Sales report workflow**: Period marking (全退/已取消) and monthly report generation
-- **In-place or output**: Modify original file or specify output path
+- **Sales report workflow**: Period marking (全退/已取消) and monthly report filtering
+- **CLI in-place contract**: CLI writes results back to the order file; API produces downloadable artifacts
 
 ## Requirements
 
@@ -51,38 +51,42 @@ excel-merge
 Lists files in `ExcelForHandel/` for interactive selection. The script will guide you to:
 1. Select the order and payment files.
 2. Optionally trigger the sales report workflow by providing a month (`YYYYMM`).
-3. Specify an output file path (or modify the original in-place).
-4. Specify an output directory for the sales report if the workflow is triggered.
+3. Write the updated order data back to the original order file.
 
 ### CLI Mode
 
-> **Breaking change**: `-o`/`--output` and `--output-dir` have been removed. All results are written **in place** to the original order file, including the sales-report workflow (no separate `report_YYYYMM.xlsx` is produced anywhere). To get a "save as" effect, copy the order file before invoking the CLI (e.g. `cp order.xlsx order_copy.xlsx && python cli.py order_copy.xlsx payment.xlsx`). The HTTP API contract is unchanged.
+> **Breaking change**: `-o`/`--output` and `--output-dir` have been removed. All CLI results are written **in place** to the original order file, including the sales-report workflow (no separate `report_YYYYMM.xlsx` is produced by CLI). To get a "save as" effect, copy the order file before invoking the CLI. The HTTP API still creates downloadable result artifacts under `results/`.
 
 ```bash
-# Basic: match payment fees and write back to order.xlsx in place
-python cli.py order.xlsx payment.xlsx
+# Full sales report workflow: match + mark + date-window filtering, in place
+python cli.py order.xlsx payment.xlsx 202602
 
 # Sales report workflow (also writes back in place; no report file is produced)
-python cli.py order.xlsx payment.xlsx --month 202602
+excel-merge-cli order.xlsx payment.xlsx 202602
+
+# Match-only reduced workflow (still writes back in place)
+python cli.py order.xlsx payment.xlsx 202602 --match-only
 
 # JSON output (for AI Agent integration)
-python cli.py order.xlsx payment.xlsx --json
+python cli.py order.xlsx payment.xlsx 202602 --json
 
 # Quiet mode (suppress logs)
-python cli.py order.xlsx payment.xlsx --quiet
+python cli.py order.xlsx payment.xlsx 202602 --quiet
 
 # Verbose mode (detailed logs)
-python cli.py order.xlsx payment.xlsx -v
+python cli.py order.xlsx payment.xlsx 202602 -v
 
 # Console script
-excel-merge-cli order.xlsx payment.xlsx
+excel-merge-cli order.xlsx payment.xlsx 202602
 ```
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `order_file` | str | *(required)* | Path to the order data file (.xlsx, .xls, .csv); will be overwritten in place |
 | `payment_file` | str | *(required)* | Path to the payment/refund data file (.xlsx, .xls, .csv) |
-| `--month` | str | `None` | Target month in `YYYYMM` format (e.g., `202602`); triggers the sales report workflow. Marks the 销售报表账期 column in the order file in place; produces no separate report file. |
+| `target_month` | str | `None` | Positional target month in `YYYYMM` format (e.g., `202602`); triggers the sales report workflow. Marks the 销售报表账期 column in the order file in place; produces no separate CLI report file. |
+| `--match-only` | flag | `False` | Reduced workflow: only match payment fees. Current CLI still requires `target_month`. |
+| `--mark-only` | flag | `False` | Reduced workflow: only mark sales report periods. Current CLI still requires `target_month`. |
 | `--json` | flag | `False` | Output result as JSON envelope to stdout |
 | `--quiet` | flag | `False` | Suppress progress logs; only warnings and errors go to stderr |
 | `-v`, `--verbose` | count | `0` | Increase verbosity: `-v` = INFO, `-vv` = DEBUG |
@@ -93,13 +97,13 @@ For AI Agents and automation scripts, use `--json --quiet` for clean machine-rea
 
 ```bash
 # Recommended: JSON output + quiet mode
-python cli.py order.xlsx payment.xlsx --json --quiet
+python cli.py order.xlsx payment.xlsx 202602 --json --quiet
 
 # Non-interactive with excel_merge.py
 python excel_merge.py --non-interactive --order-file order.xlsx --payment-file payment.xlsx --json
 
 # Check exit code
-python cli.py order.xlsx payment.xlsx --json --quiet
+python cli.py order.xlsx payment.xlsx 202602 --json --quiet
 echo $?  # 0=success, 3=file not found, 4=processing error
 ```
 
@@ -119,7 +123,7 @@ echo $?  # 0=success, 3=file not found, 4=processing error
 
 #### JSON Output Format
 
-The envelope always has three top-level fields: `ok`, `data`, `error`. The shape of `data` is **identical regardless of whether `--month` is passed**.
+The envelope always has three top-level fields: `ok`, `data`, `error`. The shape of `data` is **identical regardless of whether positional `target_month` is passed**.
 
 Success response:
 ```json
@@ -192,18 +196,22 @@ curl -X POST http://localhost:5000/merge/json \
 
 ## Sales Report Workflow
 
-Triggered by `--month YYYYMM`. All writes go back to the order file in place; **no separate `report_YYYYMM.xlsx` is produced.**
+Triggered by positional `target_month` (`YYYYMM`). All writes go back to the order file in place; **no separate CLI `report_YYYYMM.xlsx` is produced.**
 
 1. Match payment fees (same as basic mode) and write 支付手续费 back to the order file
 2. Mark 销售报表账期 column: "全退" (duplicate orders summing to zero), "已取消" (cancelled status with zero amount)
-3. In memory, compute the unmarked rows whose 出行日期 falls in a 1-year window of the target month
+3. In memory, compute the unmarked rows whose 出行日期 falls in a ±1-year window of the target month
 4. Back-fill `销售报表YYYYMM` into the 销售报表账期 column for those rows in the order file
 
 ## Project Structure
 
 ```
 excel-merge/
-├── utils.py                # Core business logic (~930 lines)
+├── file_io.py              # File reading/writing/path lookup
+├── matching.py             # Payment-fee matching core
+├── sales_report.py         # Sales-report marking/filtering workflow
+├── workflow_service.py     # Application orchestration/statistics/errors
+├── utils.py                # Compatibility facade for legacy imports
 ├── cli.py                  # CLI entry point (argparse)
 ├── excel_merge.py          # Interactive entry point
 ├── excel_merge_api.py      # Flask API server
@@ -231,7 +239,7 @@ python -m pytest
 
 Test layout:
 
-- `tests/unit/` — unit tests for `utils.py` core logic (matching, sales-report marking, date-window filtering, file reading).
+- `tests/unit/` — unit tests for core logic (matching, sales-report marking, date-window filtering, file reading) and workflow service.
 - `tests/integration/` — integration tests for the CLI (`subprocess`) and the Flask API (test client).
 - `tests/conftest.py` — shared fixtures (`sample_data_dir`) that build deterministic Excel/CSV inputs in a temp directory.
 
@@ -260,7 +268,7 @@ This project uses [OpenSpec](https://github.com/Fission-AI/OpenSpec) for spec-dr
 - `openspec/specs/cli-output/` — JSON envelope, exit codes, stdout/stderr separation
 - `openspec/specs/core-matching/` — Multi-tier matching algorithm and business type validation
 - `openspec/specs/file-io/` — Encoding fallback, Excel engine detection, order-number string protection
-- `openspec/specs/sales-report/` — Two-phase sales report workflow (`--month`)
+- `openspec/specs/sales-report/` — Two-phase sales report workflow (`target_month`)
 - `openspec/specs/http-api/` — Flask endpoints, upload/download contracts
 - `openspec/specs/agent-documentation/` — AGENTS.md content requirements
 

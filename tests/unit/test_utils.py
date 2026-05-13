@@ -31,6 +31,32 @@ def test_read_file_with_appropriate_method(sample_data_dir):
     # Check that content is roughly the same (ignoring type differences from read)
     assert df_excel.shape == df_csv.shape
 
+
+def test_read_file_with_appropriate_method_xlsx_happy_path(sample_data_dir):
+    df = read_file_with_appropriate_method(sample_data_dir / "orders.xlsx")
+    assert isinstance(df, pd.DataFrame)
+    assert not df.empty
+    assert "订单号" in df.columns
+
+
+def test_read_file_with_appropriate_method_xls_happy_path(tmp_path):
+    xlwt = pytest.importorskip("xlwt")
+    xls_path = tmp_path / "orders.xls"
+
+    workbook = xlwt.Workbook()
+    sheet = workbook.add_sheet("Sheet1")
+    headers = ["订单号", "商户订单号", "订单金额"]
+    for col, value in enumerate(headers):
+        sheet.write(0, col, value)
+    sheet.write(1, 0, "XLS_ORDER_1")
+    sheet.write(1, 1, "XLS_MERCHANT_1")
+    sheet.write(1, 2, 100)
+    workbook.save(str(xls_path))
+
+    df = read_file_with_appropriate_method(xls_path)
+    assert isinstance(df, pd.DataFrame)
+    assert df.iloc[0]["订单号"] == "XLS_ORDER_1"
+
 def test_process_excel_files_matching_logic(sample_data_dir):
     """
     Task 2.2: Test the core matching logic in process_excel_files.
@@ -162,6 +188,23 @@ def test_read_file_with_appropriate_method_csv_fallback(tmp_path):
     df = read_file_with_appropriate_method(csv_file)
     assert len(df) == 1
     assert df.iloc[0]["订单号"] == "123"
+
+
+def test_read_file_with_appropriate_method_csv_comment_and_separator_fallback(tmp_path):
+    csv_file = tmp_path / "commented.csv"
+    csv_file.write_bytes(
+        (
+            "# comment line\n"
+            "# another comment\n"
+            "订单号;商户订单号;订单金额\n"
+            "ABC123;M123;100\n"
+        ).encode("utf-8-sig")
+    )
+
+    df = read_file_with_appropriate_method(csv_file)
+    assert len(df) == 1
+    assert list(df.columns) == ["订单号", "商户订单号", "订单金额"]
+    assert df.iloc[0]["订单号"] == "ABC123"
 
 def test_read_file_with_appropriate_method_xls_fallback(tmp_path):
     # Write a dummy file that's not a real Excel file to trigger BadZipFile fallback

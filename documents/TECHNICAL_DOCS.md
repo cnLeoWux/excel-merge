@@ -4,13 +4,13 @@
 
 本文档详细描述 Excel Merge Tool 的内部实现细节，包括文件读取管道、匹配算法内部逻辑、销售报表处理、日期解析、列检测和边界情况处理。
 
-核心业务逻辑主要集中在 `utils.py`（约930行）。`workflow_service.py` 已作为应用级 service 层，集中处理校验、编排、统计、错误归一化和写回协调；`excel_merge.py`、`cli.py`、`excel_merge_api.py` 分别保留交互、CLI 和 HTTP adapter 职责。
+核心业务逻辑已从原先的 `utils.py` 大单体拆分为 `file_io.py`、`matching.py`、`sales_report.py`。`utils.py` 现在是兼容 facade，继续导出旧函数名。`workflow_service.py` 作为应用级 service 层，集中处理校验、编排、统计、错误归一化和写回协调；`excel_merge.py`、`cli.py`、`excel_merge_api.py` 分别保留交互、CLI 和 HTTP adapter 职责。
 
 ---
 
 ## File Reading Pipeline
 
-### read_file_with_appropriate_method() (L39-186)
+### file_io.read_file_with_appropriate_method()
 
 统一的文件读取入口，根据文件扩展名分发到 CSV 或 Excel 读取逻辑。
 
@@ -24,9 +24,9 @@ gbk → utf-8 → gb2312 → latin-1 → utf-8-sig
 **分隔符重试**：每种编码下依次尝试 `,`、`;`、`\t`，最后用 `sep=None`（pandas 自动检测）。
 
 **注释行处理**：
-1. 使用 `readlines()` 读取整个文件计算 `#` 开头的行数
-2. 将该行数传给 `pd.read_csv()` 的 `skiprows` 参数
-3. 注意：`readlines()` 会将整个文件加载到内存
+1. 逐行扫描开头连续的 `#` 注释行，计算 `skiprows`
+2. 兼容 UTF-8 BOM 开头的注释行
+3. 将该行数传给 `pd.read_csv()` 的 `skiprows` 参数
 
 **读取成功判定**：`df.shape[1] >= 2` 作为启发式条件判断列数是否足够。
 
@@ -81,7 +81,7 @@ col where ("订单" in col)
 
 ## Matching Algorithm Internals
 
-### process_excel_files() (L189-517)
+### matching.process_excel_files()
 
 **迭代方式**：外层 `order_df.iterrows()`，内层遍历 `payment_df`，复杂度 O(n*m)。
 
@@ -124,7 +124,7 @@ re.search(r"P\d+", text_str)
 
 ## Sales Report Workflow
 
-### Phase 1: add_sales_report_period() (L572-684)
+### Phase 1: sales_report.add_sales_report_period()
 
 为订单数据添加"销售报表账期"列，标记两类特殊订单：
 
@@ -140,7 +140,7 @@ re.search(r"P\d+", text_str)
 2. 状态包含"取消"且订单金额为0 → 标记为"已取消"
 3. 金额不为0 → 不处理
 
-### Phase 2: filter_unmarked_and_generate_report() (L743+)
+### Phase 2: sales_report.filter_unmarked_and_generate_report()
 
 **筛选逻辑**：
 1. 过滤掉"销售报表账期"列已有值的行
@@ -150,7 +150,7 @@ re.search(r"P\d+", text_str)
 5. 在原 DataFrame 中将这些行的"销售报表账期"列回填为"销售报表YYYYMM"
 6. 返回 `(updated_df, report_df)` 元组，**不**再写入 `report_YYYYMM.xlsx` 文件；调用方（`cli.py` / `excel_merge_api.py`）负责持久化
 
-### Orchestration: process_sales_report_workflow() (L887-928)
+### Orchestration: sales_report.process_sales_report_workflow()
 
 编排完整流程：
 ```
@@ -173,7 +173,7 @@ filter_unmarked_and_generate_report() → 筛选 + 生成报表
 service 层位于 adapters 与 `utils.py` 之间，不实现新的匹配算法。它的职责是：
 
 - 校验输入文件存在与月份格式。
-- 调用 `process_excel_files()`、`add_sales_report_period()`、`process_sales_report_workflow()` 等核心函数。
+- 调用 `matching.process_excel_files()`、`sales_report.add_sales_report_period()`、`sales_report.process_sales_report_workflow()` 等核心函数（通过 `utils.py` facade 或直接模块导入均保持兼容）。
 - 统一计算匹配、标注、完整工作流和 API 报表统计。
 - 将底层异常归一化为 `WorkflowError(code, message, exit_code)`。
 - 为 CLI/交互入口提供 `WorkflowResult`，为 HTTP API 提供 `ApiWorkflowResult`。
@@ -185,7 +185,7 @@ adapter 仍拥有传输层格式：CLI 的 `ok/data/error` JSON 信封、stdout/
 
 ## Date Parsing
 
-### parse_date() (L687-723)
+### sales_report.parse_date()
 
 多格式日期解析器，按优先级尝试：
 
@@ -196,7 +196,7 @@ adapter 仍拥有传输层格式：CLI 的 `ok/data/error` JSON 信封、stdout/
 
 解析失败返回 `None`。
 
-### get_year_month() (L726-740)
+### sales_report.get_year_month()
 
 日期值 → `"YYYYMM"` 字符串，内部调用 `parse_date()` 后用 `strftime("%Y%m")` 格式化。
 
@@ -204,7 +204,7 @@ adapter 仍拥有传输层格式：CLI 的 `ok/data/error` JSON 信封、stdout/
 
 ## File Writing
 
-### write_result_file() (L539-569)
+### file_io.write_result_file()
 
 保持原文件格式写入：
 - CSV → `df.to_csv(encoding="utf-8-sig")`
@@ -222,7 +222,7 @@ adapter 仍拥有传输层格式：CLI 的 `ok/data/error` JSON 信封、stdout/
 |------|------|
 | 时间复杂度 | O(n*m)，n=订单数，m=支付记录数 |
 | 空间复杂度 | 整个文件加载为 DataFrame |
-| CSV 注释处理 | `readlines()` 额外读取整个文件 |
+| CSV 注释处理 | 逐行扫描开头注释行，不再一次性 `readlines()` |
 | 瓶颈 | `iterrows()` 逐行迭代，无向量化操作 |
 
 ---
@@ -230,8 +230,8 @@ adapter 仍拥有传输层格式：CLI 的 `ok/data/error` JSON 信封、stdout/
 ## Known Issues
 
 ### 异常处理
-- 多处裸 `except Exception`（L104, L140, L161, L562, L706, L713）捕获所有异常，包括 `SystemExit` 和 `KeyboardInterrupt`
-- 可能隐藏底层错误，增加调试难度
+- 文件 I/O 与 service 层仍会包装部分底层异常，便于保持 CLI/API 历史错误契约
+- 过宽异常处理仍可能隐藏底层错误，后续可继续收窄
 
 ### 类型安全
 - `astype(str)` 可能会将 NaN 转为字面量 `"nan"`（虽然当前通过 `fillna("")` 缓解了此问题）
@@ -242,8 +242,8 @@ adapter 仍拥有传输层格式：CLI 的 `ok/data/error` JSON 信封、stdout/
 - `df.shape[1] >= 2` 作为读取成功的列数阈值
 
 ### 日志
-- 导入了 `logging` 模块但未使用，实际通过 `print` 输出
-- `verbose` 参数控制输出，但无日志级别概念
+- core 模块使用 `logging.getLogger(__name__)`
+- 部分入口和历史 verbose 输出仍混用 `print`/logging，后续可继续统一
 
 ### API
 - `/merge` 端点固定返回 XLSX mimetype，不论实际输出格式（CSV 文件也返回 XLSX mimetype）

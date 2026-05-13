@@ -1,12 +1,12 @@
 ## Purpose
 
-核心匹配能力 - 定义订单数据与支付流水的多级匹配算法、业务类型校验规则与金额赋值逻辑。该能力由 `utils.py` 中的 `process_excel_files()` 实现，是工具的核心业务逻辑。
+核心匹配能力 - 定义订单数据与支付流水的多级匹配算法、业务类型校验规则与金额赋值逻辑。该能力由 `matching.py` 承载核心实现，并通过 `utils.py` facade 向现有调用方保持兼容。
 
 ## Requirements
 
 ### Requirement: Core matching side effects
 
-`process_excel_files()` MUST currently read both input files, populate `支付手续费`, and then call `add_sales_report_period()` before returning. Therefore its returned DataFrame includes or refreshes the `销售报表账期` column even when the caller requested only basic matching.
+`process_excel_files()` MUST 保持公开签名和当前副作用，同时允许实现拆分为更小 helper 或迁移至 `matching.py` 后仍通过 `utils.py` facade 可访问。It MUST read both input files, populate `支付手续费`, and then call `add_sales_report_period()` before returning. Therefore its returned DataFrame includes or refreshes the `销售报表账期` column even when the caller requested only basic matching.
 
 #### Scenario: 基础匹配也会刷新销售报表账期
 - **WHEN** `process_excel_files(order_file, payment_file)` 成功完成
@@ -14,9 +14,16 @@
 - **AND** 返回的 DataFrame 包含 `销售报表账期` 列
 - **AND** `销售报表账期` 已按 `add_sales_report_period()` 重新计算
 
+#### Scenario: 兼容 facade 保持导入路径
+- **WHEN** 现有代码从 `utils.py` 导入 `process_excel_files`
+- **THEN** 在匹配实现拆分为更小模块后，该导入 SHALL 继续可用
+- **AND** 调用该导入函数 SHALL 产生与重构前相同的 DataFrame 语义
+
 ### Requirement: 多级匹配优先级
 
-匹配引擎 MUST first try 20-character exact matching. If no exact candidate is accepted, the current fallback scan evaluates P-number matching and hyphen matching for each payment row in payment-file order, accepting the first row whose P-number OR hyphen match passes business type validation. This means P-number does not currently have global priority over a later hyphen match across the whole payment file.
+匹配引擎 MUST 在提取内部 helper 时保持当前匹配优先级。It MUST first try 20-character exact matching. If no exact candidate is accepted, the current fallback scan evaluates P-number matching and hyphen matching for each payment row in payment-file order, accepting the first row whose P-number OR hyphen match passes business type validation. This means P-number does not currently have global priority over a later hyphen match across the whole payment file.
+
+说明：这里的重点不是“P-number 比 hyphen 更强”或相反，而是保留历史实现中可观察到的 payment 行扫描顺序。重构时若将候选预先分组、排序或索引化，必须用 golden tests 证明采纳的 payment 行仍完全一致。
 
 #### Scenario: 20 字符精确匹配优先
 - **WHEN** 订单行的 `订单号` 前 20 字符与某条支付记录的 `商户订单号` 前 20 字符相等
@@ -41,6 +48,10 @@
 - **AND** 较早的支付记录按连字符匹配且业务类型有效
 - **AND** 较晚的支付记录按 P-number 匹配且业务类型有效
 - **THEN** 先出现的连字符匹配被采纳，因为回退匹配按支付文件顺序评估
+
+#### Scenario: helper 提取不改变优先级
+- **WHEN** exact 和 fallback matching 通过提取出的 helper functions 实现时
+- **THEN** 对于同一组有序输入文件，每个订单可观察到的被采纳 payment 行 SHALL 与重构前实现一致
 
 #### Scenario: 无匹配
 - **WHEN** 三种策略均未命中
@@ -113,3 +124,18 @@ P-number 提取 MUST 使用正则 `r"P\d+"`，区分大小写，从字符串中�
 - **WHEN** 不存在同时包含 `"商户"` 和 `"订单"` 的列
 - **AND** 存在包含 `"订单"` 子串的列
 - **THEN** 第一个包含 `"订单"` 的列被选为业务订单号列
+
+### Requirement: Matching implementation boundaries
+
+matching implementation SHALL 被拆解为更小、可测试的单元，同时通过 `utils.py` 保持公开兼容性。
+
+#### Scenario: Matching helpers 覆盖业务决策
+- **WHEN** matching implementation 被重构时
+- **THEN** business-order-column detection、order-amount classification、business-type compatibility、payment-fee extraction、exact matching 和 fallback matching SHALL 能被表达为独立的 helper-level behaviours
+- **AND** 这些 helpers SHALL NOT 需要 CLI、HTTP API 或 workflow-service state 即可运行
+
+#### Scenario: Matching module 保持与 adapters 独立
+- **WHEN** matching code 执行时
+- **THEN** it SHALL NOT 解析 CLI arguments
+- **AND** it SHALL NOT 检查 Flask request objects
+- **AND** it SHALL NOT 格式化 CLI 或 API JSON responses
