@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Excel Merge Tool 是一个基于 Python 的工具，用于将订单 Excel/CSV 文件与支付流水文件进行自动匹配，填充"支付手续费"列。支持三种入口模式：交互式命令行、CLI 参数模式、Flask HTTP API。另提供销售报表账期标注和月度报表生成功能。
+Excel Merge Tool 是一个基于 Python 的工具，用于将订单 Excel/CSV 文件与支付流水文件进行自动匹配，填充“支付手续费”列。支持三种入口模式：交互式命令行、CLI 参数模式、Flask HTTP API。另提供销售报表账期标注和月度报表生成功能。
 
 主要使用场景：
 - 旅游行业订单数据与第三方支付流水的对账。
@@ -31,7 +31,7 @@ Excel Merge Tool 是一个基于 Python 的工具，用于将订单 Excel/CSV �
 - 金额列名包含全角括号：`支出金额（-元）`、`收入金额（+元）`，必须精确匹配。
 - NaN 值必须使用 `pd.isna()` / `pd.notna()` 检查，**禁止与字符串 `"nan"` 直接比较**。
 
-### Architecture Patterns
+### 架构模式
 
 - **单核心模块**：`utils.py` 集中所有业务逻辑（~930 行，匹配/读写/报表）。三个入口文件均调用 utils 函数：
 
@@ -69,19 +69,19 @@ Excel Merge Tool 是一个基于 Python 的工具，用于将订单 Excel/CSV �
   3. 连字符匹配：`外部订单号` 各部分 ↔ `商品名称` 最后 `-` 后的段
   4. 业务类型校验：正单（金额>0）↔ 收费/服务费；退单（金额<0）↔ 退费/退款
   5. 金额赋值：正单→`支出金额（-元）`；退单→`收入金额（+元）`；零金额→`支付手续费=0.0`
-- **销售报表两阶段**：阶段一匹配 + 标注（全退/已取消）；阶段二筛选未标注 + 1 年出行日期窗口 + 在原 DataFrame 中标注"销售报表YYYYMM"，由调用方就地写回订单文件（CLI 不再生成独立的 `report_YYYYMM.xlsx`；HTTP API 内部仍可落盘以提供下载）。
+- **销售报表两阶段**：阶段一匹配 + 标注（全退/已取消）；阶段二筛选未标注 + 1 年出行日期窗口 + 在原 DataFrame 中标注“销售报表YYYYMM”，由调用方就地写回订单文件（CLI 不再生成独立的 `report_YYYYMM.xlsx`；HTTP API 内部仍可落盘以提供下载）。
 
-### Testing Strategy
+### 测试策略
 
-- **测试框架**：pytest（`pip install -r requirements-dev.txt`），测试目录 `tests/`。
-- **现状**：仓库根的 `test_*.py` 是手动验证脚本（仅 `print`，无断言），**不是真正的 pytest 测试套件**；无 CI/CD、无覆盖率工具。
-- **手动验证**：`verify_result.py`、`verify_original.py` 用于人工对比输出与原始数据。
-- **新功能验证要求**：
+-- **测试框架**：pytest（`pip install -r requirements-dev.txt`），测试目录 `tests/`。
+-- **现状**：仓库根的 `test_*.py` 是手动验证脚本（仅 `print`，无断言），**不是真正的 pytest 测试套件**；无 CI/CD、无覆盖率工具。
+-- **手动验证**：`verify_result.py`、`verify_original.py` 用于人工对比输出与原始数据。
+-- **新功能验证要求**：
   - 涉及匹配逻辑的变更必须覆盖正单、退单、零金额三种情况。
   - 涉及文件读取的变更必须同时验证 CSV 和 Excel 路径。
   - CLI 行为变更需运行 `python cli.py order.xlsx payment.xlsx` 与 `--json --quiet` 两种模式。
 
-### Git Workflow
+### Git 工作流
 
 - 新功能/bugfix 在特性分支开发（如 `feature/excel-merger-new-feature`），主分支保持稳定。
 - 提交信息描述对匹配逻辑、文件处理、CLI 输出契约或错误修复的具体改动。

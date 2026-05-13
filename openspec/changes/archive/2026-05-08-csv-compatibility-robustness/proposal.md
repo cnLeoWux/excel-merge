@@ -1,25 +1,25 @@
-## Why
+## 为什么
 
-Currently, input files can be in `.csv` format (like exported payment logs), but reading these files faces encoding and formatting issues (e.g. varying encodings, scientific notation prefixes like `="123"`). To prevent data loss and ensure robust matching, all input methods (CLI arguments, interactive file picker, HTTP API) need to uniformly and safely handle CSV files, improving overall system resilience.
+目前输入文件可能是 `.csv` 格式（例如导出的支付流水），但读取这些文件时会遇到编码和格式问题（例如编码不一致、科学计数法前缀如 `="123"`）。为防止数据丢失并确保稳健匹配，所有输入方式（CLI 参数、交互式文件选择器、HTTP API）都需要统一且安全地处理 CSV 文件，从而提升整体系统韧性。
 
-## What Changes
+## 变更内容
 
-- Improve CSV parsing logic to handle missing data or formatting edge cases without silent drops.
-- Clean up artifacts from payment/order CSVs (e.g., stripping `="` or `\t`).
-- Ensure large numbers (like 20-digit order numbers) are correctly parsed as strings instead of falling back to floats which corrupts them.
-- Standardize CSV handling across all input entry points (Interactive CLI, Argparse CLI, Flask API).
+- 改进 CSV 解析逻辑，使其能处理缺失数据或格式边界情况而不会静默丢失。
+- 清理支付/订单 CSV 中的残留格式痕迹（例如去除 `="` 或 `\t`）。
+- 确保大数字（如 20 位订单号）被正确解析为字符串，而不是退回为会损坏其值的浮点数。
+- 在所有输入入口（交互式 CLI、Argparse CLI、Flask API）中统一 CSV 处理方式。
 
 ## Capabilities
 
-### New Capabilities
-None
+### 新能力
+无
 
-### Modified Capabilities
-- `file-io`: Strengthen CSV reading with `dtype=str`, prevent data loss with `on_bad_lines="warn"`, and strip artifacts like `="\t ` across the file reading pipeline.
-- `cli-input`: Ensure interactive mode properly handles or supports CSV inputs without edge case failures.
-- `http-api`: Ensure file uploads processing properly delegates to the robust `file-io` mechanism when CSVs are uploaded.
+### 修改的能力
+- `file-io`：通过 `dtype=str` 加强 CSV 读取，使用 `on_bad_lines="warn"` 防止数据丢失，并在文件读取流水线中清理如 `="\t ` 之类的残留痕迹。
+- `cli-input`：确保交互模式能正确处理或支持 CSV 输入，而不会在边界情况下失败。
+- `http-api`：确保上传 CSV 时，文件上传处理会正确委派给稳健的 `file-io` 机制。
 
-## Impact
+## 影响
 
-- `utils.py` (specifically `read_file_with_appropriate_method`) will be fully enhanced to process CSV securely.
-- Any interface passing files (`excel_merge.py`, `cli.py`, `excel_merge_api.py`) will implicitly benefit from enhanced robustness. No major breaking changes to APIs, but improved correctness.
+- `utils.py`（具体是 `read_file_with_appropriate_method`）将被全面增强，以安全处理 CSV。
+- 任何传递文件的接口（`excel_merge.py`、`cli.py`、`excel_merge_api.py`）都会间接受益于增强后的稳健性。API 不会有重大破坏性变更，但正确性会提升。

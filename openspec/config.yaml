@@ -11,7 +11,7 @@ context: |
 
   ## 架构
   - utils.py：核心业务逻辑（~930 行），包含匹配、读写、报表全部逻辑
-  - cli.py：CLI 入口（argparse），支持 -o、--month、--output-dir
+  - cli.py：CLI 入口（argparse），支持位置参数 `order_file`、`payment_file`、`target_month` 以及 `--match-only`、`--mark-only`、`--json`、`--quiet`、`--verbose`
   - excel_merge.py：交互式入口，从 ExcelForHandel/ 选择文件
   - excel_merge_api.py：Flask API（/merge, /merge/json, /download/<file>, /health）
   - setup.py：包配置，console_scripts: excel-merge, excel-merge-cli
@@ -21,7 +21,7 @@ context: |
   - 业务类型校验：正单匹配"收费"/"服务费"，退单匹配"退费"/"退款"
   - 编码回退链：gbk → utf-8 → gb2312 → latin-1 → utf-8-sig
   - 列名使用中文（订单号、商户订单号、支付手续费等）
-  - 默认原地修改原始订单文件（CLI 用 -o 可重定向）
+  - 默认原地修改原始订单文件（CLI 不再支持 `-o`/`--output`/`--output-dir` 重定向）
   - CSV 注释行（# 开头）自动跳过
   - 订单号列强制为字符串类型，防止 Excel 数字转换
 
@@ -41,7 +41,7 @@ context: |
 rules:
   proposal:
     - 用中文撰写 proposal
-    - 始终包含"非目标"（Non-goals）部分
+    - 始终包含“非目标”（Non-goals）部分
     - 影响分析须具体到文件和函数名
   specs:
     - 用 WHEN/THEN/AND 格式定义可测试的场景

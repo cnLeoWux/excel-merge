@@ -8,11 +8,11 @@
 
 `process_excel_files()` MUST currently read both input files, populate `支付手续费`, and then call `add_sales_report_period()` before returning. Therefore its returned DataFrame includes or refreshes the `销售报表账期` column even when the caller requested only basic matching.
 
-#### Scenario: Basic matching also refreshes sales-report period
-- **WHEN** `process_excel_files(order_file, payment_file)` completes successfully
-- **THEN** the returned DataFrame contains a `支付手续费` column
-- **AND** the returned DataFrame contains a `销售报表账期` column
-- **AND** `销售报表账期` has been recalculated according to `add_sales_report_period()`
+#### Scenario: 基础匹配也会刷新销售报表账期
+- **WHEN** `process_excel_files(order_file, payment_file)` 成功完成
+- **THEN** 返回的 DataFrame 包含 `支付手续费` 列
+- **AND** 返回的 DataFrame 包含 `销售报表账期` 列
+- **AND** `销售报表账期` 已按 `add_sales_report_period()` 重新计算
 
 ### Requirement: 多级匹配优先级
 
@@ -34,13 +34,13 @@
 - **WHEN** 20 字符精确匹配未命中
 - **AND** 订单行 `外部订单号` 中的某段（按 `-` 分割）与支付记录 `商品名称` 最后一个 `-` 后的段相等
 - **AND** 业务类型校验通过
-- **THEN** 在当前 payment 行扫描中该支付记录 MAY be accepted even if a later row would have matched by P-number
+- **THEN** 在当前 payment 行扫描中该支付记录 MAY 被采纳，即使后续行本可按 P-number 命中
 
-#### Scenario: Fallback scan order
-- **WHEN** exact matching accepts no payment row
-- **AND** an earlier payment row matches by hyphen with valid business type
-- **AND** a later payment row matches by P-number with valid business type
-- **THEN** the earlier hyphen match is accepted because fallback matching is evaluated in payment-file order
+#### Scenario: 回退扫描顺序
+- **WHEN** 精确匹配未接受任何支付记录
+- **AND** 较早的支付记录按连字符匹配且业务类型有效
+- **AND** 较晚的支付记录按 P-number 匹配且业务类型有效
+- **THEN** 先出现的连字符匹配被采纳，因为回退匹配按支付文件顺序评估
 
 #### Scenario: 无匹配
 - **WHEN** 三种策略均未命中

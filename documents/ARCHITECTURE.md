@@ -2,7 +2,7 @@
 
 ## Overview
 
-Excel Merge Tool 是一个订单数据与支付流水自动匹配工具。核心功能是将订单 Excel/CSV 文件与支付/退费文件进行匹配，填充"支付手续费"列。同时支持销售报表账期标记和月度报表生成。
+Excel Merge Tool 是一个订单数据与支付流水自动匹配工具。核心功能是将订单 Excel/CSV 文件与支付/退费文件进行匹配，填充"支付手续费"列。同时支持销售报表账期标记和月度报表筛选。
 
 技术栈：Python 3.7+、pandas、openpyxl、xlrd、Flask。
 
@@ -12,26 +12,26 @@ Excel Merge Tool 是一个订单数据与支付流水自动匹配工具。核心
 
 ### Entry Points
 
-系统提供 4 种入口方式，均调用 `utils.py` 中的核心逻辑：
+系统提供 4 种入口方式。入口脚本通过 `workflow_service.py` 复用应用级编排，核心业务规则仍主要保留在 `utils.py`：
 
 | 入口 | 文件 | 说明 | 控制台命令 |
 |------|------|------|-----------|
 | 交互式 | `excel_merge.py` | 从 `ExcelForHandel/` 列出文件供用户选择 | `excel-merge` |
-| CLI | `cli.py` | argparse 参数模式，支持 `--month`；结果就地写回订单文件 | `excel-merge-cli` |
-| Flask API | `excel_merge_api.py` | HTTP 服务，支持文件上传和下载 | 无（直接运行） |
+| CLI | `cli.py` | argparse 参数模式，使用位置参数 `target_month` 触发完整工作流；结果就地写回订单文件 | `excel-merge-cli` |
+| Flask API | `excel_merge_api.py` | HTTP 服务，支持文件上传、可下载结果文件和可选 `month` 表单参数 | 无（直接运行） |
 | 控制台脚本 | `setup.py` | 通过 `pip install -e .` 注册的 entry_points | — |
 
 ### Dependency Graph
 
 ```
 excel_merge.py ──┐
-cli.py ──────────┤──→ utils.py (全部核心逻辑, ~930 行)
-excel_merge_api.py┘        │
-                           ↓
-                   pandas, openpyxl, xlrd, flask
+cli.py ──────────┤──→ workflow_service.py ──→ utils.py (核心业务逻辑, ~930 行)
+excel_merge_api.py┘              │                  │
+                                  │                  ↓
+                                  └────────→ pandas, openpyxl, xlrd, flask
 ```
 
-所有业务逻辑集中在 `utils.py` 单一模块中。3 个入口脚本仅负责用户交互和参数解析。
+`workflow_service.py` 负责校验、编排、统计和错误归一化；入口脚本负责 CLI/HTTP/交互输出契约；`utils.py` 仍承载文件读取、匹配、销售报表和写回等核心实现。
 
 ---
 
@@ -52,6 +52,19 @@ excel_merge_api.py┘        │
 | `get_year_month(date_val)` | L726 | 日期 → "YYYYMM" 字符串 |
 | `filter_unmarked_and_generate_report(...)` | L743 | 筛选未标记数据，生成月度报表 |
 | `process_sales_report_workflow(...)` | L887 | 编排完整销售报表工作流 |
+
+## Service Layer: workflow_service.py
+
+| 函数/类型 | 职责 |
+|-----------|------|
+| `WorkflowResult` | CLI/交互模式的结构化结果对象 |
+| `ApiWorkflowResult` | HTTP API 的下载文件、统计和元信息结果对象 |
+| `WorkflowError` | 归一化 service 层错误，携带 `code` 与 `exit_code` |
+| `run_match_only()` | 匹配支付手续费并可选择就地写回 |
+| `run_mark_only()` | 仅标记销售报表账期并可选择就地写回 |
+| `run_sales_report()` | 完整销售报表工作流：匹配、标注、筛选、就地写回 |
+| `prepare_api_merge()` | API 专用编排：保存可下载结果文件并返回下载元信息 |
+| `build_*_statistics()` | 集中计算匹配/标注/API 报表统计 |
 
 ---
 
@@ -75,7 +88,9 @@ write_result_file()                  ← 保持 CSV/Excel 原格式
 输出文件（支付手续费已填充）
 ```
 
-### Sales Report Flow (--month)
+CLI/交互入口实际通过 `workflow_service.run_match_only()` 调用该流程并写回原订单文件；API 通过 `prepare_api_merge()` 写入 `results/` 下的可下载结果文件。
+
+### Sales Report Flow (target_month / month)
 
 ```
 process_sales_report_workflow()
@@ -88,11 +103,12 @@ process_sales_report_workflow()
     │
     └──→ filter_unmarked_and_generate_report()  ← 步骤3: 内存中筛选并标记
             ├── 过滤已标记行
-            ├── 筛选出行日期在目标月份前1年范围内的数据
+            ├── 筛选出行日期在目标月份前后 1 年窗口内的数据
             ├── 在原 DataFrame 中将这些行标记为"销售报表YYYYMM"
-            └── 返回 (updated_df, report_df)，由调用方就地写回订单文件
-                （不生成独立的 report_YYYYMM.xlsx 文件）
+            └── 返回 (updated_df, report_df)
 ```
+
+CLI 的位置参数 `target_month`（如 `202602`）触发该流程，并将 `updated_df` 就地写回订单文件；CLI 不生成独立 `report_YYYYMM.xlsx` 文件。HTTP API 的 `month` 表单参数也触发该流程，但 API 会把筛选得到的 `report_df` 保存到 `results/report_<month>_<session>.xlsx`，供 `/download/<filename>` 下载。
 
 ---
 
@@ -152,7 +168,7 @@ gbk → utf-8 → gb2312 → latin-1 → utf-8-sig
 | POST | `/merge/json` | 上传文件，返回 JSON（含下载链接和统计） |
 | GET | `/download/<filename>` | 下载结果文件 |
 
-服务运行在 `0.0.0.0:5000`，默认 debug 模式。上传文件暂存 `uploads/`，结果存 `results/`。
+默认服务运行在 `127.0.0.1:5000`，可通过 `FLASK_HOST` 和 `FLASK_DEBUG` 环境变量调整。上传文件暂存 `uploads/`，结果存 `results/`。`/merge` 和 `/merge/json` 都接受可选表单字段 `month`：未传时输出合并后的订单文件，传入时输出月度报表文件。`/merge/json` 使用 API 自有响应 shape（`success`、`download_url`、`statistics`、`files`），不使用 CLI 的 `ok/data/error` 信封。
 
 ---
 
@@ -164,4 +180,4 @@ gbk → utf-8 → gb2312 → latin-1 → utf-8-sig
 - **类型转换**：`astype(str)` 会将 NaN 转为字面量 `"nan"`
 - **日志**：导入了 `logging` 模块但实际使用 `print` 输出
 - **API**：`/merge` 固定返回 XLSX mimetype，不论实际文件格式
-- **就地覆盖**：CLI 始终覆盖原订单文件（已无 `-o`/`--output-dir`），调用前需自行备份
+- **就地覆盖**：CLI 始终覆盖原订单文件（已无 `-o`/`--output`/`--output-dir`），调用前需自行备份或依赖 CLI 自动备份

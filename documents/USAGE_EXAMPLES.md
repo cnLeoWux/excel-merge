@@ -1,6 +1,6 @@
 # Excel Merge Tool - Usage Examples
 
-> **⚠ 破坏性变更（迁移说明）**：CLI 已移除 `-o`/`--output` 与 `--output-dir` 参数；销售报表工作流不再产出独立的 `report_YYYYMM.xlsx` 文件。所有合并与销售报表标记结果**一律就地写回订单文件**。如果需要"另存为"效果，请先复制订单文件再调用 CLI（例如 `cp order.xlsx order_copy.xlsx && python cli.py order_copy.xlsx payment.xlsx`）。HTTP API（`excel_merge_api.py`）的对外契约不受此影响，仍可下载月报文件。
+> **⚠ 破坏性变更（迁移说明）**：CLI 已移除 `-o`/`--output` 与 `--output-dir` 参数；销售报表工作流不再产出独立的 `report_YYYYMM.xlsx` 文件。所有合并与销售报表标记结果**一律就地写回订单文件**。如果需要"另存为"效果，请先复制订单文件再调用 CLI（例如 `cp order.xlsx order_copy.xlsx && python cli.py order_copy.xlsx payment.xlsx 202602`）。HTTP API（`excel_merge_api.py`）仍会在 `results/` 下生成可下载结果：无 `month` 时是合并后的订单文件，有 `month` 时是筛选后的月度报表文件。
 
 ## Installation
 
@@ -48,12 +48,14 @@ Select the second Excel file (payment/refund data) by number: 2
 ### 基本用法
 
 ```bash
-# 就地匹配支付手续费并写回 order.xlsx
-python cli.py order.xlsx payment.xlsx
+# 自动化场景推荐显式传入 target_month，并按需选择工作流
+python cli.py order.xlsx payment.xlsx 202602
 
 # 或安装后：
-excel-merge-cli order.xlsx payment.xlsx
+excel-merge-cli order.xlsx payment.xlsx 202602
 ```
+
+如果省略 `target_month` 且未指定 reduced workflow，当前 CLI 会提示输入目标月份以执行完整工作流；在 stdin 不可用的自动化环境中可能直接取消。因此脚本调用应显式传入 `target_month`，或使用 `--match-only` / `--mark-only`。
 
 ### 销售报表工作流
 
@@ -79,7 +81,7 @@ python cli.py order.xlsx payment.xlsx 202602 --match-only
 python cli.py order.xlsx payment.xlsx 202602 --mark-only
 ```
 
-`--match-only` 和 `--mark-only` 是显式 reduced workflow；不要把缺失月份自动降级为 reduced workflow。自动化场景应优先从文件名/上下文推断 `target_month`，无法推断时询问用户。
+`--match-only` 和 `--mark-only` 是显式 reduced workflow；当前 CLI 仍要求同时提供位置参数 `target_month`。自动化场景应优先从文件名/上下文推断 `target_month`，无法推断时询问用户。
 
 ### CLI 参数一览
 
@@ -159,8 +161,8 @@ echo $?  # 输出: 3
 
 ### stdout/stderr 分离规则
 
-- **stdout**: 仅输出 JSON 结果（`--json` 模式）或结果文件路径（文本模式）
-- **stderr**: 所有日志、进度信息、警告和错误
+- **stdout**: JSON 结果（`--json` 模式）或文本模式的人类可读处理结果
+- **stderr**: 参数交互提示、部分进度信息、警告和错误
 
 使用 `--json --quiet` 时，stdout 中仅包含 JSON 信封，所有其他输出均发送到 stderr，便于程序化解析。
 
@@ -193,7 +195,7 @@ import json
 
 # Run the CLI with JSON output
 result = subprocess.run(
-    ["python", "cli.py", "order.xlsx", "payment.xlsx", "--json", "--quiet"],
+    ["python", "cli.py", "order.xlsx", "payment.xlsx", "202602", "--json", "--quiet"],
     capture_output=True,
     text=True
 )
@@ -267,6 +269,17 @@ curl -X POST http://localhost:5000/merge/json \
   }
 }
 ```
+
+### cURL: 月度报表模式
+
+```bash
+curl -X POST http://localhost:5000/merge/json \
+  -F "order_file=@orders.xlsx" \
+  -F "payment_file=@payments.csv" \
+  -F "month=202602"
+```
+
+传入 `month` 时，API 返回的 `download_url` 指向 `report_202602_<session>.xlsx`；该文件是筛选后的月度报表。CLI 的 `target_month` 工作流不会生成这个下载文件，这是 CLI 与 API 的刻意契约差异。
 
 ### cURL: 下载文件
 

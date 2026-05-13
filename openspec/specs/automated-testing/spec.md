@@ -4,31 +4,31 @@
 
 ## Requirements
 
-### Requirement: Test Framework and Structure
-The project MUST use `pytest` as its testing framework. All test files MUST be located in a new top-level `tests/` directory.
+### Requirement: 测试框架与结构
+项目 MUST 使用 `pytest` 作为测试框架。所有测试文件 MUST 位于新建的顶层 `tests/` 目录中。
 
-#### Scenario: Test file structure
-- **WHEN** new tests are added
-- **THEN** they MUST be placed in files named `test_*.py` or `*_test.py` inside the `tests/` directory.
+#### Scenario: 测试文件结构
+- **WHEN** 新测试被添加
+- **THEN** 它们 MUST 放置在 `tests/` 目录内名为 `test_*.py` 或 `*_test.py` 的文件中。
 
-#### Scenario: Development dependencies
-- **WHEN** setting up the development environment
-- **THEN** a `requirements-dev.txt` file MUST exist and contain `pytest`.
+#### Scenario: 开发依赖
+- **WHEN** 搭建开发环境
+- **THEN** 必须存在 `requirements-dev.txt` 文件且包含 `pytest`。
 
-### Requirement: Test Coverage
-The test suite MUST provide comprehensive coverage for core logic, workflow/service orchestration, entry points, and API endpoints.
+### Requirement: 测试覆盖
+测试套件 MUST 对核心逻辑、workflow/service 编排、入口点和 API 端点提供全面覆盖。
 
-#### Scenario: Core logic unit tests
-- **WHEN** running the test suite
-- **THEN** there MUST be unit tests for `utils.py` that cover:
+#### Scenario: 核心逻辑单元测试
+- **WHEN** 运行测试套件
+- **THEN** MUST 存在覆盖 `utils.py` 的单元测试，包含：
   - `process_excel_files` matching logic (exact, P-number, hyphen).
   - `add_sales_report_period` marking logic ("全退", "已取消").
   - `filter_unmarked_and_generate_report` filtering logic.
   - `read_file_with_appropriate_method` for all supported file types and encodings.
 
-#### Scenario: Workflow service unit tests
-- **WHEN** running the test suite
-- **THEN** there MUST be unit tests for the workflow/service layer that cover:
+#### Scenario: Workflow service 单元测试
+- **WHEN** 运行测试套件
+- **THEN** MUST 存在覆盖 workflow/service 层的单元测试，包含：
   - Match-only service operation and statistics.
   - Mark-only service operation and statistics.
   - Full sales-report service operation and statistics.
@@ -36,9 +36,9 @@ The test suite MUST provide comprehensive coverage for core logic, workflow/serv
   - Service-level error normalization for missing files, invalid months, and write/persistence failures.
   - API report statistics including `report_rows` and full workflow statistics.
 
-#### Scenario: CLI functional tests
-- **WHEN** running the test suite
-- **THEN** there MUST be tests for `cli.py` that execute the script as a subprocess or call `main_cli()` with patched `sys.argv` and verify:
+#### Scenario: CLI 功能测试
+- **WHEN** 运行测试套件
+- **THEN** MUST 存在针对 `cli.py` 的测试，可通过子进程执行脚本或使用补丁后的 `sys.argv` 调用 `main_cli()` 并验证：
   - Basic matching or match-only mode writes the result back in place to the order file (no separate output file is produced).
   - The sales report workflow (positional `target_month`) writes 销售报表 markings back in place to the order file and produces no `report_*.xlsx` artefact.
   - CLI output remains compatible after execution is routed through the workflow/service layer.
@@ -46,9 +46,9 @@ The test suite MUST provide comprehensive coverage for core logic, workflow/serv
   - The `--json` output is a valid JSON with the expected structure for the executed mode.
   - Invalid arguments cause a non-zero exit code.
 
-#### Scenario: API integration tests
-- **WHEN** running the test suite
-- **THEN** there MUST be integration tests for `excel_merge_api.py` that:
+#### Scenario: API 集成测试
+- **WHEN** 运行测试套件
+- **THEN** MUST 存在针对 `excel_merge_api.py` 的集成测试，且：
   - Start the Flask test server.
   - Send `POST` requests to `/merge` and `/merge/json` with and without the `month` parameter.
   - Verify API responses remain compatible after execution is routed through the workflow/service layer.
@@ -56,19 +56,19 @@ The test suite MUST provide comprehensive coverage for core logic, workflow/serv
   - Verify the file content or JSON response is correct.
   - Verify the `/health` endpoint returns a 200 status code.
 
-#### Scenario: Documentation contract tests
-- **WHEN** running the test suite
-- **THEN** there MUST be tests or assertions that Agent/user-facing docs do not present `--month` as a current CLI parameter
-- **AND** docs MUST show positional `target_month` for full workflow examples
-- **AND** docs MUST describe `--match-only` as an explicit reduced workflow only
+#### Scenario: 文档契约测试
+- **WHEN** 运行测试套件
+- **THEN** MUST 存在测试或断言，确保面向 Agent/用户的文档不会将 `--month` 表示为当前 CLI 参数
+- **AND** 文档 MUST 在完整工作流示例中展示位置参数 `target_month`
+- **AND** 文档 MUST 将 `--match-only` 描述为仅用于显式降级工作流
 
-### Requirement: Test Execution and Documentation
-The test suite MUST be easy to discover and run.
+### Requirement: 测试执行与文档
+测试套件 MUST 易于发现和运行。
 
-#### Scenario: Running tests
+#### Scenario: 运行测试
 - **WHEN** a developer runs `pytest` from the project root
 - **THEN** all automated tests MUST be discovered and executed.
 
-#### Scenario: README documentation
+#### Scenario: README 文档
 - **WHEN** a developer reads `README.md`
 - **THEN** it MUST contain a section explaining how to install development dependencies and run the test suite.

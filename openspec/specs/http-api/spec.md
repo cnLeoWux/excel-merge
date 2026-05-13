@@ -79,7 +79,7 @@ API MUST 校验上传文件的格式与大小，拒绝不合法请求并返回�
 
 ### Requirement: JSON 响应格式
 
-`/merge/json` 端点 SHALL return the current API-specific JSON shape. This endpoint is not currently required to use the CLI `--json` envelope.
+`/merge/json` 端点 SHALL 返回当前 API 专用的 JSON 结构。该端点当前不要求使用 CLI `--json` 信封。
 
 #### Scenario: 成功响应
 - **WHEN** `/merge/json` 处理成功
@@ -95,7 +95,7 @@ API MUST 校验上传文件的格式与大小，拒绝不合法请求并返回�
 
 ### Requirement: 字符编码与 MIME 类型
 
-API SHALL return downloadable files as attachments. `/merge` currently uses the Excel OpenXML MIME type for all returned attachments, while `/download/<filename>` delegates MIME detection to Flask `send_file()`.
+API SHALL 将可下载文件作为 attachment 返回。`/merge` 当前对所有返回的 attachment 使用 Excel OpenXML MIME type，而 `/download/<filename>` 则将 MIME 检测委托给 Flask `send_file()`。
 
 #### Scenario: Excel 文件下载 MIME 类型
 - **WHEN** 下载 `.xlsx` 文件
@@ -111,76 +111,76 @@ API SHALL return downloadable files as attachments. `/merge` currently uses the 
 - **THEN** 响应正确编码为 UTF-8
 - **AND** 客户端能完整解析中文内容
 
-### Requirement: API sales report trigger
-The Flask API endpoints `/merge` and `/merge/json` MUST support triggering the sales report workflow via a form parameter.
+### Requirement: API 销售报表触发
+Flask API 端点 `/merge` 和 `/merge/json` MUST 支持通过表单参数触发销售报表工作流。
 
-#### Scenario: Trigger sales report via /merge/json
-- **WHEN** a client sends a `POST` request to `/merge/json` with valid `order_file`, `payment_file`, and a `month` form parameter (e.g., "202602")
-- **THEN** the `process_sales_report_workflow` SHALL be executed.
-- **AND** the API layer SHALL persist the filtered report DataFrame to a downloadable file under `results/` (the workflow function itself does not write files).
-- **AND** the JSON response MUST include `success=true`, a `download_url` pointing to that file, and a `statistics.report_rows` integer count. (This is the API's own response shape and is independent from the CLI JSON envelope, which does not carry `report_file`/`report_rows`.)
+#### Scenario: 通过 /merge/json 触发销售报表
+- **WHEN** 客户端发送带有有效 `order_file`、`payment_file` 和 `month` 表单参数（例如 "202602"）的 `POST` 请求到 `/merge/json`
+- **THEN** `process_sales_report_workflow` SHALL 被执行。
+- **AND** API 层 SHALL 将筛选后的 report DataFrame 持久化为 `results/` 下的可下载文件（工作流函数本身不写文件）。
+- **AND** JSON 响应 MUST 包含 `success=true`、指向该文件的 `download_url`，以及 `statistics.report_rows` 整数计数。（这是 API 自身的响应结构，与不包含 `report_file`/`report_rows` 的 CLI JSON 信封相互独立。）
 
-#### Scenario: Trigger sales report via /merge
-- **WHEN** a client sends a `POST` request to `/merge` with valid `order_file`, `payment_file`, and a `month` form parameter.
-- **THEN** the `process_sales_report_workflow` SHALL be executed.
-- **AND** the system SHALL return the generated monthly report file (`report_YYYYMM.xlsx`) as a file attachment if it was created.
+#### Scenario: 通过 /merge 触发销售报表
+- **WHEN** 客户端发送带有有效 `order_file`、`payment_file` 和 `month` 表单参数的 `POST` 请求到 `/merge`
+- **THEN** `process_sales_report_workflow` SHALL 被执行。
+- **AND** 如果生成了月度报表文件，系统 SHALL 将其作为文件 attachment 返回（`report_YYYYMM.xlsx`）。
 
-#### Scenario: No month parameter provided
-- **WHEN** a client sends a `POST` request to `/merge` or `/merge/json` without the `month` parameter.
-- **THEN** the standard matching workflow SHALL be executed.
-- **AND** the response SHALL NOT contain sales report artifacts.
+#### Scenario: 未提供月份参数
+- **WHEN** 客户端向 `/merge` 或 `/merge/json` 发送未带 `month` 参数的 `POST` 请求
+- **THEN** SHALL 执行标准匹配工作流。
+- **AND** 响应 SHALL NOT 包含销售报表产物。
 
-### Requirement: HTTP API routes use workflow service
+### Requirement: HTTP API 路由使用 workflow service
 
 HTTP API merge routes MUST use the workflow/service layer for shared processing while preserving API request validation, response shape, and downloadable artifact behavior. The routes SHALL consume service-produced metadata instead of recomputing shared workflow statistics.
 
-#### Scenario: /merge without month uses API service
-- **WHEN** `/merge` receives valid uploaded order and payment files without `month`
-- **THEN** the route SHALL save uploads safely
-- **AND** it SHALL call the API-oriented matching workflow service operation
-- **AND** it SHALL return the service result file as an attachment
+#### Scenario: /merge 无月份使用 API service
+- **WHEN** `/merge` 接收到有效的订单文件和支付文件上传，且不带 `month`
+- **THEN** 路由 SHALL 安全保存上传文件
+- **AND** 它 SHALL 调用面向 API 的匹配 workflow service 操作
+- **AND** 它 SHALL 将 service 结果文件作为 attachment 返回
 
-#### Scenario: /merge with month uses API service
-- **WHEN** `/merge` receives valid uploaded order and payment files with `month`
-- **THEN** the route SHALL call the API-oriented sales-report workflow service operation
-- **AND** it SHALL return the generated report attachment when report data is produced
+#### Scenario: /merge 带月份使用 API service
+- **WHEN** `/merge` 接收到带 `month` 的有效订单文件和支付文件上传
+- **THEN** 路由 SHALL 调用面向 API 的销售报表 workflow service 操作
+- **AND** 当产出报表数据时，它 SHALL 返回生成的报表 attachment
 
-#### Scenario: /merge/json without month uses API service
-- **WHEN** `/merge/json` receives valid uploaded order and payment files without `month`
-- **THEN** the route SHALL call the API-oriented matching workflow service operation
-- **AND** it SHALL format the service result using the documented API-specific `success` response shape
+#### Scenario: /merge/json 无月份使用 API service
+- **WHEN** `/merge/json` 接收到有效的订单文件和支付文件上传，且不带 `month`
+- **THEN** 路由 SHALL 调用面向 API 的匹配 workflow service 操作
+- **AND** 它 SHALL 使用文档化的 API 专用 `success` 响应结构格式化 service 结果
 
-#### Scenario: /merge/json with month uses API service
-- **WHEN** `/merge/json` receives valid uploaded order and payment files with `month`
-- **THEN** the route SHALL call the API-oriented sales-report workflow service operation
-- **AND** it SHALL format the service result using the documented API-specific response shape including `statistics.report_rows`
+#### Scenario: /merge/json 带月份使用 API service
+- **WHEN** `/merge/json` 接收到带 `month` 的有效订单文件和支付文件上传
+- **THEN** 路由 SHALL 调用面向 API 的销售报表 workflow service 操作
+- **AND** 它 SHALL 使用包含 `statistics.report_rows` 的文档化 API 专用响应结构格式化 service 结果
 
-#### Scenario: Invalid month service error
-- **WHEN** `/merge` or `/merge/json` receives valid uploaded order and payment files with an invalid `month`
-- **THEN** the workflow service SHALL raise `WorkflowError(code="usage_error")`
-- **AND** the route SHALL return HTTP 400
-- **AND** `/merge/json` SHALL return a JSON failure response with `success=false` and `error`
+#### Scenario: 无效月份的 service 错误
+- **WHEN** `/merge` 或 `/merge/json` 接收到带无效 `month` 的有效订单文件和支付文件上传
+- **THEN** workflow service SHALL 抛出 `WorkflowError(code="usage_error")`
+- **AND** 路由 SHALL 返回 HTTP 400
+- **AND** `/merge/json` SHALL 返回包含 `success=false` 与 `error` 的 JSON 失败响应
 
-### Requirement: HTTP adapter remains responsible for HTTP concerns
+### Requirement: HTTP adapter 仍负责 HTTP 关注点
 
-`excel_merge_api.py` MUST remain responsible for Flask-specific concerns such as request parsing, upload field validation, `secure_filename()`, HTTP status codes, and `send_file()` responses.
+`excel_merge_api.py` MUST 继续负责 Flask 专属关注点，例如请求解析、上传字段校验、`secure_filename()`、HTTP 状态码与 `send_file()` 响应。
 
-#### Scenario: Upload validation before service call
-- **WHEN** an API request is missing required files or has invalid filenames
-- **THEN** the API route SHALL return an HTTP error before calling the workflow service
+#### Scenario: 调用 service 前的上传校验
+- **WHEN** API 请求缺少必需文件或文件名无效
+- **THEN** API 路由 SHALL 在调用 workflow service 前返回 HTTP 错误
 
-#### Scenario: HTTP response formatting after service call
-- **WHEN** the workflow service returns a successful API result
-- **THEN** the API route SHALL format that result as either a file attachment or API-specific JSON response
+#### Scenario: service 调用后的 HTTP 响应格式化
+- **WHEN** workflow service 返回成功的 API 结果
+- **THEN** API 路由 SHALL 将该结果格式化为文件 attachment 或 API 专用 JSON 响应
 
-#### Scenario: HTTP formatting of service usage error
-- **WHEN** the workflow service raises `WorkflowError(code="usage_error")`
-- **THEN** the API route SHALL map it to HTTP 400
+#### Scenario: service usage error 的 HTTP 格式化
+- **WHEN** workflow service 抛出 `WorkflowError(code="usage_error")`
+- **THEN** API 路由 SHALL 将其映射为 HTTP 400
 
-#### Scenario: HTTP formatting of service file-not-found error
-- **WHEN** the workflow service raises `WorkflowError(code="file_not_found")`
-- **THEN** the API route SHALL map it to HTTP 404
+#### Scenario: service file-not-found error 的 HTTP 格式化
+- **WHEN** workflow service 抛出 `WorkflowError(code="file_not_found")`
+- **THEN** API 路由 SHALL 将其映射为 HTTP 404
 
-#### Scenario: HTTP formatting of service processing error
-- **WHEN** the workflow service raises `WorkflowError(code="processing_error")`
-- **THEN** the API route SHALL map it to HTTP 500
+#### Scenario: service processing error 的 HTTP 格式化
+- **WHEN** workflow service 抛出 `WorkflowError(code="processing_error")`
+- **THEN** API 路由 SHALL 将其映射为 HTTP 500

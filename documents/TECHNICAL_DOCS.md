@@ -4,7 +4,7 @@
 
 本文档详细描述 Excel Merge Tool 的内部实现细节，包括文件读取管道、匹配算法内部逻辑、销售报表处理、日期解析、列检测和边界情况处理。
 
-所有核心逻辑集中在 `utils.py`（约930行），3个入口脚本（`excel_merge.py`、`cli.py`、`excel_merge_api.py`）为薄包装层。
+核心业务逻辑主要集中在 `utils.py`（约930行）。`workflow_service.py` 已作为应用级 service 层，集中处理校验、编排、统计、错误归一化和写回协调；`excel_merge.py`、`cli.py`、`excel_merge_api.py` 分别保留交互、CLI 和 HTTP adapter 职责。
 
 ---
 
@@ -92,13 +92,14 @@ col where ("订单" in col)
 2. 获取外部订单号
 3. 解析订单金额 → 判断正单/退单/零金额
 4. 零金额 → 支付手续费=0.0, 跳过匹配
-5. 遍历支付记录：
-   a. 精确匹配：订单号[:20] == 商户订单号[:20]
-   b. P-number匹配：extract_p_number(外部订单号) == extract_p_number(商品名称)
-   c. 连字符匹配：外部订单号 == 商品名称.rsplit("-", 1)[-1]
-   d. 业务类型校验：正单→收费/服务费，退单→退费/退款
-   e. 全部条件满足 → 赋值并跳出内层循环
+5. 第一阶段遍历支付记录做 20 字符精确匹配，并校验业务类型
+6. 若精确匹配未采纳任何行，第二阶段按 payment 文件原始行顺序做 fallback：
+   a. 对当前 payment 行尝试 P-number 匹配
+   b. 若 P-number 未命中，再对当前 payment 行尝试连字符匹配
+   c. 任一 fallback 命中且业务类型校验通过 → 赋值并停止该订单后续扫描
 ```
+
+注意：fallback 阶段不是“全局先找所有 P-number，再找所有连字符”。较早的有效连字符命中会优先于较晚的有效 P-number 命中，这是当前兼容契约。
 
 ### 业务类型校验
 
@@ -144,7 +145,7 @@ re.search(r"P\d+", text_str)
 **筛选逻辑**：
 1. 过滤掉"销售报表账期"列已有值的行
 2. 解析"出行日期"列
-3. 计算时间窗口：目标月份往前推1年（如 `202602` → `2025-02-01` 至 `2026-02-28`）
+3. 计算时间窗口：目标月份前后 1 年（如 `202602` → `2025-02-01` 至 `2027-02-28`）
 4. 筛选出行日期在窗口内的行
 5. 在原 DataFrame 中将这些行的"销售报表账期"列回填为"销售报表YYYYMM"
 6. 返回 `(updated_df, report_df)` 元组，**不**再写入 `report_YYYYMM.xlsx` 文件；调用方（`cli.py` / `excel_merge_api.py`）负责持久化
@@ -158,7 +159,27 @@ add_sales_report_period()          → 标记全退/已取消（内含于 filter
 filter_unmarked_and_generate_report() → 筛选 + 生成报表
 ```
 
-由 `cli.py` 的 `--month` 参数触发。
+触发入口：
+- `cli.py`：位置参数 `target_month` 触发完整销售报表工作流，结果就地写回订单文件，不生成独立报表文件。
+- `excel_merge.py`：交互/非交互入口可通过月份选项触发完整工作流。
+- `excel_merge_api.py`：表单字段 `month` 触发 API 月报模式，API 会将 `report_df` 保存为可下载文件。
+
+---
+
+## Workflow Service Layer
+
+### workflow_service.py
+
+service 层位于 adapters 与 `utils.py` 之间，不实现新的匹配算法。它的职责是：
+
+- 校验输入文件存在与月份格式。
+- 调用 `process_excel_files()`、`add_sales_report_period()`、`process_sales_report_workflow()` 等核心函数。
+- 统一计算匹配、标注、完整工作流和 API 报表统计。
+- 将底层异常归一化为 `WorkflowError(code, message, exit_code)`。
+- 为 CLI/交互入口提供 `WorkflowResult`，为 HTTP API 提供 `ApiWorkflowResult`。
+- 协调写回策略：CLI/交互写回原订单文件；API 写入 `results/` 下的下载文件。
+
+adapter 仍拥有传输层格式：CLI 的 `ok/data/error` JSON 信封、stdout/stderr 和退出码由 `cli.py` 负责；HTTP response shape、status code 和下载 URL 由 `excel_merge_api.py` 负责。
 
 ---
 
@@ -190,6 +211,8 @@ filter_unmarked_and_generate_report() → 筛选 + 生成报表
 - Excel → 根据扩展名和 zipfile 探测选择引擎（与读取逻辑一致）
 
 注意：写入 Excel 时对已存在的 `.xlsx` 文件再次进行 zipfile 探测来选择引擎，这在文件已被 `process_excel_files` 处理后可能不必要。
+
+当前调用关系：CLI/交互入口通过 `workflow_service._write_in_place()` 写回原订单文件；API 通过 `workflow_service.prepare_api_merge()` 将结果写入 `results/` 目录。CLI 已移除另存为参数，若需要保留原文件，应在调用前复制或使用 CLI 自动备份文件。
 
 ---
 
@@ -224,5 +247,5 @@ filter_unmarked_and_generate_report() → 筛选 + 生成报表
 
 ### API
 - `/merge` 端点固定返回 XLSX mimetype，不论实际输出格式（CSV 文件也返回 XLSX mimetype）
-- `MAX_CONTENT_LENGTH` 声明但未通过 `app.config` 生效
+- `MAX_CONTENT_LENGTH` 已写入 `app.config`，默认限制 16MB
 - `uploads/` 和 `results/` 目录在模块导入时创建

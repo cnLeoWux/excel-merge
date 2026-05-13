@@ -1,6 +1,6 @@
 # 现有架构重构探索建议
 
-> 本文档记录一次架构探索结论，用于后续 OpenSpec proposal、设计讨论或渐进式重构规划。本文只描述方向，不代表已实施。
+> 本文档记录架构探索结论，并已按当前实现状态更新：`workflow_service.py` 已落地为共享 service 层；后续重构重点转为在保持行为不变的前提下拆分 `utils.py`。
 
 ## 结论
 
@@ -19,7 +19,7 @@
 OpenSpec / 文档 / 测试对齐
    │
    ▼
-抽统一 workflow/service 层
+已抽出 workflow_service.py
    │
    ▼
 拆分 utils.py
@@ -31,53 +31,56 @@ OpenSpec / 文档 / 测试对齐
 再考虑性能优化和项目结构整理
 ```
 
-当前最大风险不是“文件太大”，而是同一业务能力被 CLI、交互入口、Flask API 以不同方式编排、输出、写回和处理错误。
+当前最大风险已经从“入口层重复编排”转为“核心业务仍集中在 `utils.py`，拆分时可能改变历史行为”。后续所有结构调整都应先用 OpenSpec 和测试锁定契约。
 
 ## 当前架构概览
 
 ```text
                     ┌──────────────┐
                     │    cli.py    │
-                    │ 命令行入口   │
+                    │ CLI adapter  │
                     └──────┬───────┘
                            │
 ┌────────────────┐         │         ┌────────────────────┐
-│ excel_merge.py │─────────┼────────▶│      utils.py       │
-│ 交互式入口     │         │         │ 核心业务大单体       │
-└────────────────┘         │         │                    │
-                           │         │ - 文件读取           │
-┌────────────────────┐     │         │ - 编码判断           │
-│ excel_merge_api.py │─────┘         │ - 匹配算法           │
-│ Flask API 入口     │               │ - 写回文件           │
-└────────────────────┘               │ - 销售报表账期       │
+│ excel_merge.py │─────────┼────────▶│ workflow_service.py │
+│ 交互式入口     │         │         │ 应用编排/统计/错误   │
+└────────────────┘         │         └─────────┬──────────┘
+                           │                   │
+┌────────────────────┐     │                   ▼
+│ excel_merge_api.py │─────┘         ┌────────────────────┐
+│ Flask API 入口     │               │      utils.py       │
+└────────────────────┘               │ 核心业务大单体       │
+                                     │ - 文件读取           │
+                                     │ - 编码判断           │
+                                     │ - 匹配算法           │
+                                     │ - 写回文件           │
+                                     │ - 销售报表账期       │
                                      │ - 日期解析           │
-                                     │ - 工作流编排         │
                                      └────────────────────┘
 ```
 
-`utils.py` 是明显的核心重力井，但入口层也承担了过多业务编排职责。
+`workflow_service.py` 已减轻入口层编排压力；`utils.py` 仍是核心重力井。
 
 ## 重构优先级
 
 ### P0：先修正契约漂移
 
-优先明确 OpenSpec、文档、测试、实现之间的不一致。需要先回答：
+优先明确 OpenSpec、文档、测试、实现之间的不一致。当前已定契约：
 
-- CLI 到底使用 `--month YYYYMM`，还是位置参数？
-- 是否正式支持 `--match-only` / `--mark-only`？
-- 无 month 时 CLI 是否允许交互输入？
-- `/merge/json` 返回 `ok/data/error`，还是 `success`？
-- API 月报是否生成独立 report 文件，而 CLI 不生成？
-- `.xls` 到底是否支持原地写回？
-- `process_excel_files()` 是否只负责匹配手续费，还是允许顺手标记销售报表账期？
+- `cli.py` 使用位置参数 `target_month` 触发完整工作流。
+- `--match-only` / `--mark-only` 是正式 reduced workflow，当前仍要求提供 `target_month`。
+- `/merge/json` 使用 API shape：`success`、`download_url`、`statistics`、`files`；CLI JSON 使用 `ok/data/error`。
+- API 月报模式生成独立可下载 report 文件；CLI 月报工作流不生成独立报表文件，只就地写回订单文件。
+- `.xls` 读取受支持；写回是否可用取决于 pandas/writer 环境，失败应向上抛错。
+- `process_excel_files()` 当前仍会刷新 `销售报表账期`，这是历史兼容副作用。
 
 如果不先定清楚，后续拆模块会把当前不一致扩散到更多文件中。
 
-### P1：抽统一 workflow/service 层
+### P1：维护并收敛 workflow/service 层
 
-这是最高 ROI 的结构性重构。
+该层已经实现，后续重点是保持边界清晰。
 
-目标是让三个入口变薄：
+当前目标是让三个入口继续保持变薄：
 
 ```text
               ┌──────────────┐
@@ -104,8 +107,10 @@ OpenSpec / 文档 / 测试对齐
 
 统一 workflow/service 层负责：
 
-- `run_merge(order_file, payment_file)`
+- `run_match_only(order_file, payment_file)`
+- `run_mark_only(order_file)`
 - `run_sales_report(order_file, payment_file, month)`
+- `prepare_api_merge(...)`
 - 统计结果构建
 - 错误模型归一化
 - 写回策略协调
@@ -139,22 +144,16 @@ matching.py
 
 sales_report.py
   add_sales_report_period()
-  filter_unmarked_and_generate_report()
-  process_sales_report_workflow()
-
-date_utils.py
   parse_date()
   get_year_month()
-
-backup.py
-  auto_backup()
-
-workflow.py
-  面向 CLI / API / 交互入口的统一编排
+  filter_unmarked_and_generate_report()
+  process_sales_report_workflow()
 
 utils.py
   暂时保留兼容导出，降低迁移风险
 ```
+
+当前 OpenSpec change `refactor-core-workflow-boundaries` 采用的目标模块正是 `file_io.py`、`matching.py`、`sales_report.py`，并保留 `utils.py` 作为兼容 facade。
 
 重点原则：结构变化和行为变化不要混在同一步里。
 
@@ -207,6 +206,8 @@ def process_excel_files(order_file, payment_file, verbose=False):
 - 找不到文件时 `find_file_path()` 返回 `None` 还是原始路径
 
 这些属于产品契约，应先进入 OpenSpec，再进入实现。
+
+已定事实：CLI 已移除另存为参数，主输出路径为原订单文件；`cli.py` 当前会在调用 service 前创建备份。API 仍生成 `results/` 下的可下载文件。
 
 ### P5：最后再做性能优化和项目结构整理
 
@@ -276,8 +277,8 @@ API 的问题可以通过统一 workflow/service 层自然缓解。先重写 API
 阶段 2：补 characterization tests
   锁住当前关键行为，尤其是边界案例
 
-阶段 3：抽 workflow/service 层
-  让 CLI、交互入口、API 都调用同一套编排
+阶段 3：维护 workflow/service 层（已落地）
+  让 CLI、交互入口、API 都调用同一套编排，并防止 adapter 输出格式下沉
 
 阶段 4：拆 utils.py
   机械搬迁，不改行为
@@ -290,9 +291,9 @@ API 的问题可以通过统一 workflow/service 层自然缓解。先重写 API
 
 ## 最值得单独立项的 change
 
-如果只选一个重构 change，建议是：
+如果只选下一个重构 change，建议是：
 
-> 新增统一 workflow/service 层，并让 CLI、交互入口、Flask API 逐步变成薄入口。
+> `refactor-core-workflow-boundaries`：在 `workflow_service.py` 已存在的前提下，先补行为锁定测试，再按职责拆分 `utils.py`。
 
 该 change 的核心问题是明确：
 
@@ -302,33 +303,30 @@ API 的问题可以通过统一 workflow/service 层自然缓解。先重写 API
 - 谁负责错误模型？
 - 谁负责统计结果？/
 
-这些边界清楚后，`utils.py` 的拆分会更自然、更低风险。
+这些边界目前已初步清楚，下一步重点是防止拆分 `utils.py` 时改变匹配优先级、CSV fallback 顺序或 CLI/API 输出契约。
 
 ## 适合后续创建的 OpenSpec 方向
 
 可以考虑拆成多个较小 change：
 
-1. `align-cli-api-contracts`
-   - 对齐 CLI/API 输出、参数、错误格式、销售报表行为。
+1. `refactor-core-workflow-boundaries`
+   - 当前活跃方向：行为锁定测试 + `file_io.py` / `matching.py` / `sales_report.py` 拆分 + `utils.py` facade。
 
-2. `introduce-workflow-service-layer`
-   - 引入统一 workflow/service 层，入口层变薄。
+2. `split-utils-by-responsibility`
+   - 若需要更小粒度，可从当前 change 中拆出纯迁移任务。
 
-3. `split-utils-by-responsibility`
-   - 按 file_io、matching、sales_report、date_utils、backup 拆分 `utils.py`。
-
-4. `pure-dataframe-matching-engine`
+3. `pure-dataframe-matching-engine`
    - 将匹配引擎纯化为 DataFrame in / DataFrame out。
 
-5. `define-safe-persistence-policy`
+4. `define-safe-persistence-policy`
    - 明确备份、原子写、`.xls`、CSV 编码、API 下载格式。
 
 ## 后续探索问题
 
 - CLI 是否应彻底禁止自动化场景下的交互输入？
-- API 和 CLI 是否必须共享完全相同的 JSON envelope？
-- API 生成 report 文件而 CLI 不生成，是否是刻意差异？
-- `process_excel_files()` 当前是否应该被视为“历史兼容 API”？
+- API 和 CLI 当前不共享完全相同的 JSON envelope；是否长期保持差异仍可后续讨论。
+- API 生成 report 文件而 CLI 不生成，当前应视为刻意契约差异。
+- `process_excel_files()` 当前应该被视为“历史兼容 API”。
 - 销售报表账期标记是否应从普通匹配流程中移出？
 - `.xls` 原地写回是否值得继续支持？
 - 是否需要引入明确的 `Result` / `Error` 数据结构？

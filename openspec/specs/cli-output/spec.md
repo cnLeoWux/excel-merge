@@ -123,13 +123,13 @@ CLI MUST 支持 `--quiet` 和 `--verbose` 标志以控制日志详细程度。
 
 CLI MUST create a timestamped backup of the order file before processing any mode that may write results back to the order file.
 
-#### Scenario: Backup before processing
+#### Scenario: 处理前备份
 - **WHEN** 用户执行 `python cli.py order.xlsx payment.xlsx 202602 --json --quiet`
 - **AND** 两个输入文件存在
 - **THEN** CLI 在处理前调用自动备份逻辑
 - **AND** 备份文件被写入 `backup/` 目录
 
-#### Scenario: Backup failure
+#### Scenario: 备份失败
 - **WHEN** 自动备份失败
 - **THEN** CLI 将错误作为处理错误输出
 - **AND** JSON 模式下 `error.code` 为 `"processing_error"`
@@ -139,16 +139,16 @@ CLI MUST create a timestamped backup of the order file before processing any mod
 
 CLI output formatting MUST consume workflow/service result objects for `data.output_file`, `data.statistics`, and processing errors instead of recomputing shared workflow statistics in `cli.py`.
 
-#### Scenario: Full workflow JSON from service result
+#### Scenario: 来自服务结果的完整工作流 JSON
 - **WHEN** `cli.py` completes a full sales-report workflow through the service layer
 - **THEN** CLI JSON `data.output_file` SHALL come from the service result
 - **AND** CLI JSON `data.statistics` SHALL come from the service result
 
-#### Scenario: Reduced workflow JSON from service result
+#### Scenario: 来自服务结果的降级工作流 JSON
 - **WHEN** `cli.py` completes `--match-only` or `--mark-only` through the service layer
 - **THEN** CLI JSON statistics SHALL reflect the service result for that selected mode
 
-#### Scenario: Error mapping from service error
+#### Scenario: 来自服务错误的错误映射
 - **WHEN** the service layer returns or raises a normalized workflow error
 - **THEN** `cli.py` SHALL map it to the documented CLI JSON error envelope and exit code
 
@@ -156,10 +156,10 @@ CLI output formatting MUST consume workflow/service result objects for `data.out
 
 `cli.py` MUST remain responsible for argument parsing, interactive prompting, stdout/stderr formatting, and `sys.exit()` behavior even after workflow execution moves into the service layer.
 
-#### Scenario: Argument parsing remains in CLI
+#### Scenario: 参数解析仍由 CLI 负责
 - **WHEN** a user invokes `cli.py`
 - **THEN** `cli.py` SHALL parse positional file arguments, optional `target_month`, mode flags, and output flags before calling the service layer
 
-#### Scenario: JSON envelope remains in CLI
+#### Scenario: JSON 信封仍由 CLI 负责
 - **WHEN** CLI output is emitted in JSON mode
 - **THEN** `cli.py` SHALL format the service result using the documented `ok/data/error` envelope

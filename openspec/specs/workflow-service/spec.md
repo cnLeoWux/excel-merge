@@ -4,104 +4,104 @@ Workflow service 能力 - 定义应用级 workflow/service 层如何协调 `util
 
 ## Requirements
 
-### Requirement: Workflow service entry points
+### Requirement: Workflow service 入口
 
-The system MUST provide a workflow/service layer that exposes application-level operations for matching-only, mark-only, full sales-report, and API-oriented merge workflows while delegating existing business rules to `utils.py` functions.
+系统 MUST 提供 workflow/service 层，暴露仅匹配、仅标注、完整销售报表以及面向 API 的合并工作流的应用级操作，同时将现有业务规则委托给 `utils.py` 中的函数。
 
-#### Scenario: Match-only workflow service
-- **WHEN** an entry point calls the match-only service operation with an order file and payment file
-- **THEN** the service SHALL run the existing payment-fee matching logic
-- **AND** the service SHALL return a structured result containing the output file path, updated DataFrame, and match statistics
+#### Scenario: 仅匹配 workflow service
+- **WHEN** 入口点使用订单文件和支付文件调用仅匹配 service 操作
+- **THEN** service SHALL 执行现有的支付手续费匹配逻辑
+- **AND** service SHALL 返回包含输出文件路径、更新后的 DataFrame 与匹配统计的结构化结果
 
-#### Scenario: Mark-only workflow service
-- **WHEN** an entry point calls the mark-only service operation with an order file
-- **THEN** the service SHALL run the existing sales-report period marking logic
-- **AND** the service SHALL return a structured result containing the output file path, updated DataFrame, and marking statistics
+#### Scenario: 仅标注 workflow service
+- **WHEN** 入口点使用订单文件调用仅标注 service 操作
+- **THEN** service SHALL 执行现有的销售报表账期标注逻辑
+- **AND** service SHALL 返回包含输出文件路径、更新后的 DataFrame 与标注统计的结构化结果
 
-#### Scenario: Full sales-report workflow service
+#### Scenario: 完整销售报表 workflow service
 - **WHEN** an entry point calls the sales-report service operation with an order file, payment file, and `target_month`
 - **THEN** the service SHALL run the existing full sales-report workflow
 - **AND** the service SHALL return a structured result containing the output file path, updated order DataFrame, report DataFrame, and full workflow statistics
 
-#### Scenario: API-oriented workflow service
-- **WHEN** the HTTP API calls the API-oriented workflow operation with uploaded file paths and optional `month`
-- **THEN** the service SHALL produce the result path, download name, download URL, statistics, and file metadata needed by API routes
-- **AND** the service SHALL preserve API-specific downloadable artifact behavior
+#### Scenario: 面向 API 的 workflow service
+- **WHEN** HTTP API 使用上传文件路径和可选 `month` 调用面向 API 的 workflow 操作
+- **THEN** service SHALL 产出路由所需的结果路径、下载名、下载 URL、统计与文件元数据
+- **AND** service SHALL 保留 API 专用的可下载产物行为
 
-### Requirement: Workflow result structures
+### Requirement: Workflow 结果结构
 
-The workflow/service layer MUST return explicit structured results rather than requiring entry points to recompute statistics or infer persistence outputs from raw DataFrames. It MUST also validate target-month inputs before invoking the core sales-report workflow.
+workflow/service 层 MUST 返回明确的结构化结果，而不是要求入口点从原始 DataFrame 重新计算统计或推断持久化输出。它还 MUST 在调用核心销售报表工作流前验证目标月份输入。
 
-#### Scenario: CLI-compatible workflow result
-- **WHEN** a CLI or interactive entry point receives a workflow result
-- **THEN** the result SHALL include `output_file` and `statistics`
-- **AND** the entry point can format the result as CLI text or the CLI `ok/data/error` JSON envelope without recomputing statistics
+#### Scenario: CLI 兼容的 workflow 结果
+- **WHEN** CLI 或交互式入口点接收到 workflow 结果
+- **THEN** 结果 SHALL 包含 `output_file` 与 `statistics`
+- **AND** 入口点可将结果格式化为 CLI 文本或 `ok/data/error` JSON 信封，而无需重新计算统计
 
-#### Scenario: API-compatible workflow result
-- **WHEN** an API route receives an API workflow result
-- **THEN** the result SHALL include `result_path`, `download_name`, `download_url`, `statistics`, and `files`
-- **AND** the route can format the response using the existing API-specific JSON shape or file attachment behavior
+#### Scenario: API 兼容的 workflow 结果
+- **WHEN** API 路由接收到 API workflow 结果
+- **THEN** 结果 SHALL 包含 `result_path`、`download_name`、`download_url`、`statistics` 与 `files`
+- **AND** 路由可使用现有 API 专用 JSON 结构或文件 attachment 行为格式化响应
 
-#### Scenario: Service-level error shape
-- **WHEN** the service layer handles a known workflow failure
-- **THEN** it SHALL expose a normalized error code and message that entry points can map to CLI exit codes or HTTP status codes
+#### Scenario: service 级错误结构
+- **WHEN** service 层处理已知 workflow 失败
+- **THEN** 它 SHALL 暴露规范化的错误码与消息，供入口点映射到 CLI 退出码或 HTTP 状态码
 
-#### Scenario: Missing input file error
-- **WHEN** a service operation receives an order file or payment file path that does not exist
-- **THEN** it SHALL raise `WorkflowError` with `code="file_not_found"`
-- **AND** `exit_code` SHALL be 3
+#### Scenario: 缺少输入文件错误
+- **WHEN** service 操作接收到不存在的订单文件或支付文件路径
+- **THEN** 它 SHALL 抛出 `WorkflowError`，`code="file_not_found"`
+- **AND** `exit_code` SHALL 为 3
 
-#### Scenario: Invalid target month error
-- **WHEN** a service operation receives a non-empty `target_month` or API `month` that is not valid `YYYYMM`
-- **THEN** it SHALL raise `WorkflowError` with `code="usage_error"`
-- **AND** `exit_code` SHALL be 2
-- **AND** it SHALL NOT call the core sales-report workflow
+#### Scenario: 无效目标月份错误
+- **WHEN** service 操作接收到非空且不符合 `YYYYMM` 的 `target_month` 或 API `month`
+- **THEN** 它 SHALL 抛出 `WorkflowError`，`code="usage_error"`
+- **AND** `exit_code` SHALL 为 2
+- **AND** 它 SHALL NOT 调用核心销售报表工作流
 
-#### Scenario: Write failure error
-- **WHEN** a service operation cannot write back or persist its result file
-- **THEN** it SHALL raise `WorkflowError` with `code="processing_error"`
-- **AND** `exit_code` SHALL be 4
+#### Scenario: 写入失败错误
+- **WHEN** service 操作无法回写或持久化其结果文件
+- **THEN** 它 SHALL 抛出 `WorkflowError`，`code="processing_error"`
+- **AND** `exit_code` SHALL 为 4
 
-### Requirement: Centralized statistics calculation
+### Requirement: 统计计算集中化
 
-The workflow/service layer MUST centralize statistics calculation for shared workflows so entry points do not duplicate formulas.
+workflow/service 层 MUST 为共享工作流集中统计计算，避免入口点重复公式。
 
-#### Scenario: Match statistics
+#### Scenario: 匹配统计
 - **WHEN** a matching result DataFrame is processed
 - **THEN** the service SHALL calculate `total_rows`, `matched_rows`, and `match_rate`
 
-#### Scenario: Mark statistics
+#### Scenario: 标注统计
 - **WHEN** a marked order DataFrame is processed
 - **THEN** the service SHALL calculate `total_rows` and `marked_rows`
 
-#### Scenario: Full workflow statistics
+#### Scenario: 完整工作流统计
 - **WHEN** a full sales-report workflow result is processed
 - **THEN** the service SHALL calculate `total_rows`, `matched_rows`, `match_rate`, and `marked_rows`
 
-#### Scenario: API report statistics
+#### Scenario: API 报表统计
 - **WHEN** an API sales-report request produces a filtered report DataFrame
 - **THEN** the service SHALL include full workflow statistics plus `report_rows` in API-facing statistics
 
-#### Scenario: Empty API report data
+#### Scenario: 空的 API 报表数据
 - **WHEN** an API sales-report request produces an empty filtered report DataFrame under the current contract
 - **THEN** the service SHALL raise `WorkflowError` with `code="processing_error"`
 - **AND** it SHALL NOT return downloadable report metadata
 
-### Requirement: Persistence coordination
+### Requirement: 持久化协调
 
-The workflow/service layer MUST coordinate write-back or API result-file persistence according to the calling adapter's contract.
+workflow/service 层 MUST 根据调用方适配器的契约协调回写或 API 结果文件持久化。
 
-#### Scenario: CLI in-place persistence
+#### Scenario: CLI 就地持久化
 - **WHEN** the CLI calls a service operation that writes results
 - **THEN** the service SHALL write the updated order DataFrame back to the original order file path
 - **AND** the service SHALL NOT create a CLI `report_*.xlsx` artifact
 
-#### Scenario: Interactive in-place persistence
+#### Scenario: 交互式就地持久化
 - **WHEN** interactive mode calls a service operation that writes results
 - **THEN** the service SHALL write the updated order DataFrame back to the selected order file path
 - **AND** the service SHALL NOT create an independent report file for interactive mode
 
-#### Scenario: API downloadable persistence
+#### Scenario: API 可下载持久化
 - **WHEN** the API calls a service operation that writes results for download
 - **THEN** the service SHALL write the appropriate merged or report DataFrame under the configured API result directory
 - **AND** the service SHALL return metadata needed for `/download/<filename>`
