@@ -82,15 +82,15 @@ def filter_unmarked_and_generate_report(
         target_month_num = int(target_month[4:6])
     except (ValueError, IndexError):
         return df, pd.DataFrame()
-    start_date = pd.Timestamp(year=target_year - 1, month=target_month_num, day=1)
-    end_date = pd.Timestamp(year=target_year + 1, month=target_month_num, day=1) + pd.offsets.MonthEnd(0)
+    start_date = pd.Timestamp(year=target_year, month=target_month_num, day=1)
+    end_date = start_date + pd.offsets.MonthEnd(0)
     unmarked_df["_travel_date"] = pd.to_datetime(unmarked_df[date_col], errors="coerce")
     filtered_df = unmarked_df[(unmarked_df["_travel_date"] >= start_date) & (unmarked_df["_travel_date"] <= end_date)].copy()
-    filtered_df.drop(columns=["_travel_date"], inplace=True)
     if len(filtered_df) > 0:
         mark_value = f"销售报表{target_month}"
         for idx in filtered_df.index:
             df.at[idx, "销售报表账期"] = mark_value
+    filtered_df.drop(columns=["_travel_date"], inplace=True)
     return df, filtered_df.copy() if len(filtered_df) > 0 else pd.DataFrame()
 
 
